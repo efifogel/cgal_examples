@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.15)
-project(boost_program_options_example)
+project(test_boost LANGUAGES CXX)
 
 # Find Boost with program_options component
-find_package(Boost 1.88 REQUIRED COMPONENTS program_options)
+find_package(Boost REQUIRED COMPONENTS program_options)
 
 if(Boost_FOUND)
     include_directories(${Boost_INCLUDE_DIRS})
