@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
   Mesh mesh;
 
 #if defined(USE_SURFACE_MESH)
-  if (! CGAL::IO::read_polygon_mesh(filename, mesh, CGAL::parameters::verbose(true))) {
+  if (! CGAL::IO::read_polygon_mesh(filename, mesh, CGAL::parameters::verbose(true).repair_polygon_soup(true))) {
     std::cerr << "Error: could not read mesh from '" << filename << "'.\n";
     return 1;
   }
@@ -54,10 +54,11 @@ int main(int argc, char* argv[]) {
      return 1;
   }
   auto fcolors = fcolors_optional.value();
-  
+
 #else
   Face_color_map fcolors;
-  if (! CGAL::IO::read_polygon_mesh(filename, mesh, CGAL::parameters::verbose(true).face_color_map(fcolors))) {
+  if (! CGAL::IO::read_polygon_mesh(filename, mesh, CGAL::parameters::verbose(true).repair_polygon_soup(true).
+                                    face_color_map(fcolors))) {
     std::cerr << "Error: could not read mesh from '" << filename << "'.\n";
     return 1;
   }
