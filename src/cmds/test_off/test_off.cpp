@@ -48,7 +48,13 @@ int main(int argc, char* argv[]) {
   for (const auto& pm : face_property_maps) std::cout << pm << std::endl;
 
   // Show colors for faces
-  auto fcolors = mesh.property_map<Face_descriptor, CGAL::IO::Color >("f:color").value();
+  auto fcolors_optional = mesh.property_map<Face_descriptor, CGAL::IO::Color >("f:color");
+  if (! fcolors_optional) {
+     std::cerr << "Error: could not read colors from '" << filename << "'.\n";
+     return 1;
+  }
+  auto fcolors = fcolors_optional.value();
+  
 #else
   Face_color_map fcolors;
   if (! CGAL::IO::read_polygon_mesh(filename, mesh, CGAL::parameters::verbose(true).face_color_map(fcolors))) {
