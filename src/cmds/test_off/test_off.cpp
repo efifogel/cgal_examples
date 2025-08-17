@@ -31,6 +31,8 @@ int main(int argc, char* argv[]) {
   using Face_color_map = boost::property_map<Mesh, CGAL::dynamic_face_property_t<CGAL::IO::Color> >::type;
 #endif
 
+  using Vertex_descriptor = boost::graph_traits<Mesh>::vertex_descriptor;
+  using Edge_descriptor = boost::graph_traits<Mesh>::edge_descriptor;
   using Face_descriptor = boost::graph_traits<Mesh>::face_descriptor;
 
   const char* filename = (argc > 1) ? argv[1] : "cube.off";
@@ -75,7 +77,10 @@ int main(int argc, char* argv[]) {
               << int(c.alpha()) << ")\n";
   }
 
-  CGAL::draw(mesh, filename);
+  CGAL::Graphics_scene_options<Mesh, Vertex_descriptor, Edge_descriptor, Face_descriptor> gso;
+  gso.colored_face=[](const Mesh&, Face_descriptor) -> bool { return true; };
+  gso.face_color=[&](const Mesh& mesh, Face_descriptor fd) -> CGAL::IO::Color { return get(fcolors, fd); };
+  CGAL::draw(mesh, gso, filename);
 
   return 0;
 }
