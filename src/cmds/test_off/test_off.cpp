@@ -1,5 +1,7 @@
 #include <iostream>
 #include <string>
+#include <vector>
+#include <list>
 
 #define USE_SURFACE_MESH
 
@@ -67,6 +69,12 @@ int main(int argc, char* argv[]) {
   CGAL::Graphics_scene_options<Mesh, Vertex_descriptor, Edge_descriptor, Face_descriptor> gso;
   gso.ignore_all_vertices(true);
   gso.ignore_all_edges(true);
+  gso.colored_face = [](const Mesh&, typename boost::graph_traits<Mesh>::face_descriptor) -> bool
+  { return true; };
+  gso.face_color =  [] (const Mesh&, typename boost::graph_traits<Mesh>::face_descriptor fh) -> CGAL::IO::Color {
+    if (fh == boost::graph_traits<Mesh>::null_face()) return CGAL::IO::Color(100, 125, 200);
+    return get_random_color(CGAL::get_default_random());
+  };
 
 #if defined(USE_SURFACE_MESH)
   auto fcolors_optional = mesh.property_map<Face_descriptor, CGAL::IO::Color>("f:color");
@@ -99,13 +107,21 @@ int main(int argc, char* argv[]) {
 
   CGAL::draw(mesh, gso, filename);
 
+  // General validity
+  auto is_valid = mesh.is_valid();
+  if (! is_valid) std::cerr << "The mesh is not valid\n";
+
   // Closed
   auto is_closed = CGAL::is_closed(mesh);
-  std::cout << "The mesh " << ((is_closed) ? "is" : "is not") << " closed\n";
+  if (! is_closed) std::cerr << "The mesh is not closed\n";
 
   // Triangular mesh
   auto is_tri = CGAL::is_triangle_mesh(mesh);
-  std::cout << "The mesh " << ((is_tri) ? "is" : "is not") << " triangular\n";
+  if (! is_tri) std::cerr << "The mesh is not triangular\n";
+
+  // Does self intersect
+  auto self_intersect = PMP::does_self_intersect(mesh);
+  if (self_intersect) std::cerr << "The mesh self intersects\n";
 
   // Connected components
   auto fccmap = mesh.add_property_map<Face_descriptor, std::size_t>("f:CC").first;
@@ -115,12 +131,23 @@ int main(int argc, char* argv[]) {
   // Does bound a volume
   if (is_closed && is_tri) {
     std::vector<bool> isoo;
-    bool does_bound_volume =
+    bool bound_volume =
       PMP::does_bound_a_volume(mesh, CGAL::parameters::is_cc_outward_oriented(std::reference_wrapper(isoo)));
-    std::cout << "The mesh " << ((does_bound_volume) ? "does" : "does not") << " bound a volume\n";
+    if (! bound_volume) std::cerr << "The mesh does not bound a volume\n";
     for (auto ccid = 0; ccid < num_ccs; ++ccid)
-      std::cout << "Component " << ccid << ((isoo[ccid]) ? " is" : " is not") << " outward oriented\n";
+      if (! isoo[ccid]) std::cerr << "Component " << ccid << " is not outward oriented\n";
   }
 
+  // if (num_ccs > 1) {
+  //   std::vector<Mesh> ccs;
+  //   CGAL::Polygon_mesh_processing::split_connected_components(mesh, ccs);
+  //   assert(ccs.size() == 2);
+  //   std::size_t i = 0;
+  //   for (auto& cc : ccs) {
+  //     CGAL::draw(cc, gso, filename);
+  //     bool does_bound_volume = PMP::does_bound_a_volume(cc);
+  //     std::cout << "The mesh [" << i++ << "]" << ((does_bound_volume) ? "does" : "does not") << " bound a volume\n";
+  //   }
+  // }
   return 0;
 }

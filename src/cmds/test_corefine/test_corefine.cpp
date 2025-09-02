@@ -6,8 +6,8 @@
 
 #include <boost/program_options.hpp>
 
-// #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
-#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
+// #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/boost/graph/selection.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
@@ -17,10 +17,11 @@
 #include <CGAL/Basic_viewer.h>
 #include <CGAL/draw_surface_mesh.h>
 
-// using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
-using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
+using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
+// using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
 
 using Mesh = CGAL::Surface_mesh<Kernel::Point_3>;
+using vertex_descriptor = boost::graph_traits<Mesh>::vertex_descriptor;
 using halfedge_descriptor = boost::graph_traits<Mesh>::halfedge_descriptor;
 using edge_descriptor = boost::graph_traits<Mesh>::edge_descriptor;
 using face_descriptor = boost::graph_traits<Mesh>::face_descriptor;
@@ -104,9 +105,18 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
+  gso.ignore_all_vertices(true);
+  gso.ignore_all_edges(true);
+  gso.colored_face = [](const Mesh&, typename boost::graph_traits<Mesh>::face_descriptor) -> bool
+  { return true; };
+  gso.face_color =  [] (const Mesh&, typename boost::graph_traits<Mesh>::face_descriptor fh) -> CGAL::IO::Color {
+    if (fh == boost::graph_traits<Mesh>::null_face()) return CGAL::IO::Color(100, 125, 200);
+    return get_random_color(CGAL::get_default_random());
+  };
   CGAL::Graphics_scene scene;
-  CGAL::add_to_graphics_scene(mesh1, scene);
-  CGAL::add_to_graphics_scene(mesh2, scene);
+  CGAL::add_to_graphics_scene(mesh1, scene, gso);
+  CGAL::add_to_graphics_scene(mesh2, scene, gso);
   CGAL::draw_graphics_scene(scene);
 
   // create a property on edges to indicate whether they are constrained

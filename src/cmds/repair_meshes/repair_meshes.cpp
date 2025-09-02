@@ -16,6 +16,7 @@
 namespace po = boost::program_options;
 namespace fs = std::filesystem;
 namespace PMP = CGAL::Polygon_mesh_processing;
+namespace params = CGAL::parameters;
 
 //! Not in used yet
 template <typename Mesh>
@@ -58,10 +59,11 @@ bool fill_mesh(Mesh& mesh, std::size_t verbose = 0) {
 
     std::vector<face_descriptor>  patch_facets;
     std::vector<vertex_descriptor> patch_vertices;
-    bool success = std::get<0>(PMP::triangulate_refine_and_fair_hole(mesh,
-                                                                     h,
-                                                                     CGAL::parameters::face_output_iterator(std::back_inserter(patch_facets))
-                                                                     .vertex_output_iterator(std::back_inserter(patch_vertices))));
+    bool success =
+      std::get<0>(PMP::triangulate_refine_and_fair_hole(mesh,
+                                                        h,
+                                                        params::face_output_iterator(std::back_inserter(patch_facets))
+                                                        .vertex_output_iterator(std::back_inserter(patch_vertices))));
 
     if (verbose >= 2) {
       std::cout << "  Number of facets in constructed patch: " << patch_facets.size() << std::endl;
@@ -95,7 +97,7 @@ bool check_mesh(const std::string& filename, std::size_t verbose = 0, bool do_dr
   bool has_colors = false;
   Face_color_map fcolors;
 
-  if (! CGAL::IO::read_polygon_mesh(filename, mesh, CGAL::parameters::verbose(true).repair_polygon_soup(true))) {
+  if (! CGAL::IO::read_polygon_mesh(filename, mesh, params::verbose(true).repair_polygon_soup(true))) {
     std::cerr << "Error: could not read mesh from '" << filename << "'.\n";
     return 1;
   }
@@ -131,7 +133,7 @@ bool check_mesh(const std::string& filename, std::size_t verbose = 0, bool do_dr
     if (success) {
       std::cout << "done\n";
       is_closed = true;
-      // CGAL::IO::write_polygon_mesh("out.off", mesh, CGAL::parameters::stream_precision(17));
+      // CGAL::IO::write_polygon_mesh("out.off", mesh, params::stream_precision(17));
       // std::cout << "Mesh written to: out.off" << std::endl;
     }
     else {
@@ -166,7 +168,7 @@ bool check_mesh(const std::string& filename, std::size_t verbose = 0, bool do_dr
   CGAL_assertion(is_closed && is_tri);
   std::vector<bool> isoo;
   bool does_bound_volume =
-    PMP::does_bound_a_volume(mesh, CGAL::parameters::is_cc_outward_oriented(std::reference_wrapper(isoo)));
+    PMP::does_bound_a_volume(mesh, params::is_cc_outward_oriented(std::reference_wrapper(isoo)));
   if (! does_bound_volume) {
     std::cerr << filename << " does not bound a volume\n";
     return false;
@@ -235,7 +237,6 @@ int main(int argc, char* argv[]) {
     if (verbose >= 1) {
       std::cout << "Found " << count << " .off file(s)\n";
     }
-
   }
   catch (std::exception& e) {
     std::cerr << "Exception: " << e.what() << "\n";
