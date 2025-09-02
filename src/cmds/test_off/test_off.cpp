@@ -130,7 +130,7 @@ int main(int argc, char* argv[]) {
 
   // Does bound a volume
   if (is_closed && is_tri) {
-    std::vector<bool> isoo;
+    std::vector<bool> isoo(num_ccs);
     bool bound_volume =
       PMP::does_bound_a_volume(mesh, CGAL::parameters::is_cc_outward_oriented(std::reference_wrapper(isoo)));
     if (! bound_volume) std::cerr << "The mesh does not bound a volume\n";
