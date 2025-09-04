@@ -3,6 +3,7 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include <array>
 
 #include <boost/program_options.hpp>
 
@@ -16,6 +17,7 @@
 #include <CGAL/Graphics_scene_options.h>
 #include <CGAL/Basic_viewer.h>
 #include <CGAL/draw_surface_mesh.h>
+#include <CGAL/Polygon_mesh_processing/manifoldness.h>
 
 using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
 // using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
@@ -123,26 +125,41 @@ int main(int argc, char* argv[]) {
   Mesh::Property_map<edge_descriptor,bool> is_constrained_map =
     mesh1.add_property_map<edge_descriptor,bool>("e:is_constrained", false).first;
 
-  // update mesh1 to contain the mesh bounding the difference
-  // of the two input volumes.
-  bool valid_difference =
-    PMP::corefine_and_compute_difference(mesh1,
-                                         mesh2,
-                                         mesh1,
-                                         params::default_values(), // default parameters for mesh1
-                                         params::default_values(), // default parameters for mesh2
-                                         params::edge_is_constrained_map(is_constrained_map));
+  PMP::Corefinement::Non_manifold_output_visitor<Mesh> visitor(mesh1, mesh2);
+  Mesh difference;
+  bool valid_difference = PMP::corefine_and_compute_difference(mesh1, mesh2, difference, params::visitor(visitor));
 
-  if (! valid_difference) {
-    std::cerr << "Difference could not be computed\n";
-    return 1;
+  if (valid_difference) {
+    std::cout << "Difference was successfully computed\n";
+    auto self_intersect = PMP::duplicate_non_manifold_vertices(difference);
+    if (self_intersect) {
+      std::cout << "The output self intersect as a result of duplicating non-manifold vertices\n";
+    }
+  }
+  else {
+    std::cout << "Difference failed; resorting to handling a non-manifild result\n";
+    std::vector<Kernel::Point_3> points;
+    std::vector<std::array<std::size_t, 3>> polygons;
+
+    visitor.extract_tm1_minus_tm2(points, polygons);
+    CGAL::IO::write_polygon_soup("inter_soup.off", points, polygons, CGAL::parameters::stream_precision(17));
+    // make the soup topologically manifold (but geometrically self-intersecting)
+    PMP::orient_polygon_soup(points, polygons);
+    // fill a mesh with the intersection
+    PMP::polygon_soup_to_polygon_mesh(points, polygons, difference);
   }
 
-  std::cout << "Difference was successfully computed\n";
-  CGAL::draw(mesh1, "difference");
-  CGAL::IO::write_polygon_mesh("difference.off", mesh1, CGAL::parameters::stream_precision(17));
+  CGAL::draw(difference, "difference");
+  CGAL::IO::write_polygon_mesh("difference.off", difference, CGAL::parameters::stream_precision(17));
 
 #if 0
+  bool valid_difference = PMP::corefine_and_compute_difference(mesh1,
+                                                               mesh2,
+                                                               difference,
+                                                               params::default_values(), // default parameters for mesh1
+                                                               params::default_values(), // default parameters for mesh2
+                                                               params::edge_is_constrained_map(is_constrained_map));
+
   // collect faces incident to a constrained edge
   std::vector<face_descriptor> selected_faces;
   std::vector<bool> is_selected(num_faces(mesh1), false);
