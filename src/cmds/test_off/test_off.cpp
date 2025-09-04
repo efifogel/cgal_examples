@@ -124,6 +124,7 @@ int main(int argc, char* argv[]) {
   if (self_intersect) std::cerr << "The mesh self intersects\n";
 
   // Connected components
+#if defined(USE_SURFACE_MESH)
   auto fccmap = mesh.add_property_map<Face_descriptor, std::size_t>("f:CC").first;
   std::size_t num_ccs = PMP::connected_components(mesh, fccmap);
   std::cout << "Number of connected components: " << num_ccs << "\n";
@@ -137,6 +138,7 @@ int main(int argc, char* argv[]) {
     for (auto ccid = 0; ccid < num_ccs; ++ccid)
       if (! isoo[ccid]) std::cerr << "Component " << ccid << " is not outward oriented\n";
   }
+#endif
 
   // if (num_ccs > 1) {
   //   std::vector<Mesh> ccs;
