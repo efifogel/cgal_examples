@@ -3,14 +3,9 @@
 #include <list>
 
 template <typename C>
-// typename std::enable_if<
-//   std::is_same<C, std::vector<typename C::value_type>>::value ||
-//   std::is_same<C, std::list<typename C::value_type>>::value
-// >::type
 typename std::enable_if<
   std::is_same<C, std::vector<typename C::value_type>>::value ||
-  std::is_same<C, std::list<typename C::value_type>>::value, void
->::type
+  std::is_same<C, std::list<typename C::value_type>>::value>::type
 process_container(const C& c) {
   // Works for vector and list only
 }
