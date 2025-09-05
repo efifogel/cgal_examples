@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.1...3.23)
+project(minicourse-examples LANGUAGES CXX)
+add_executable(integral_concept integral_concept.cpp)
+add_executable(constraining_containers constraining_containers.cpp)
+add_executable(refinement refinement.cpp)
