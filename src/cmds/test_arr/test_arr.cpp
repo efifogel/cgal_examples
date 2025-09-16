@@ -10,7 +10,7 @@
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Arrangement_2.h>
 #include <CGAL/Arr_extended_dcel.h>
-#include <CGAL/Arr_observer.h>
+#include <CGAL/Arr_overlay_2.h>
 #include <CGAL/Arr_segment_traits_2.h>
 #include <CGAL/Basic_viewer.h>
 #include <CGAL/boost/graph/selection.h>
@@ -21,7 +21,7 @@ using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
 using Traits = CGAL::Arr_segment_traits_2<Kernel>;
 using Name = std::string;
 using Names = std::list<std::string>;
-using Dcel = CGAL::Arr_extended_dcel<Traits, int, Names, std::pair<bool, Names>>;
+using Dcel = CGAL::Arr_face_extended_dcel<Traits, Names>;
 using Arrangement = CGAL::Arrangement_2<Traits, Dcel>;
 using Point_2 = Traits::Point_2;
 using X_monotone_curve_2 = Traits::X_monotone_curve_2;
@@ -37,32 +37,35 @@ using Face_handle = Arrangement::Face_handle;
 namespace po = boost::program_options;
 namespace fs = std::filesystem;
 
-// An observer that receives notifications of face splits and face mergers.
-class My_observer : public CGAL::Arr_observer<Arrangement> {
-private:
-  std::string m_name;
+struct Overlay_traits {
+  using V_const_handle = typename Arrangement::Vertex_const_handle;
+  using H_const_handle = typename Arrangement::Halfedge_const_handle;
+  using F_const_handle = typename Arrangement::Face_const_handle;
+  using V_handle = typename Arrangement::Vertex_handle;
+  using H_handle = typename Arrangement::Halfedge_handle;
+  using F_handle = typename Arrangement::Face_handle;
 
-public:
-  My_observer(const std::string& name) : m_name(name) {}
-
-  My_observer(Arrangement& arr) : CGAL::Arr_observer<Arrangement>(arr) {}
-  virtual void after_create_edge(Halfedge_handle e) {
-    e->data().push_back(m_name);
-    e->twin()->data().push_back(m_name);
+  void create_face(F_const_handle f1, F_const_handle f2, F_handle f) const {
+    f->set_data(f1->data());
+    f->data().insert(f->data().end(), f2->data().begin(), f2->data().end());
   }
 
-  virtual void 	after_split_edge(Halfedge_handle e1, Halfedge_handle e2) {
-    e2->set_data(e1->data());
-    e2->twin()->set_data(e1->data());
-  }
+  void create_vertex(H_const_handle h1, H_const_handle h2, V_handle v) const {}
+  void create_vertex(V_const_handle v1, V_const_handle v2, V_handle v) const {}
+  void create_vertex(V_const_handle v1, H_const_handle h2, V_handle v) const {}
+  void create_vertex(H_const_handle h1, V_const_handle v2, V_handle v) const {}
+  void create_vertex(F_const_handle f1, V_const_handle v2, V_handle v) const {}
+  void create_vertex(V_const_handle v1, F_const_handle f2, V_handle v) const {}
+  void create_edge(H_const_handle h1, H_const_handle h2, H_handle h) const {}
+  void create_edge(H_const_handle h1, F_const_handle f2, H_handle h) const {}
+  void create_edge(F_const_handle f1, H_const_handle h2, H_handle h) const {}
 };
 
 //! Insert a polygon into the arrangement
 template <typename InputIterator>
-void add_polygon(Arrangement& arr, const std::string& name, InputIterator begin, InputIterator end) {
+Arrangement polygon_arrangement(const std::string& name, InputIterator begin, InputIterator end) {
+  Arrangement arr;
   std::cout << "Adding polygon " << name << "\n";
-  My_observer observer(name);
-  observer.attach(arr);
   auto next = begin;
   auto it = next++;
   for (; next != end; it = next++) {
@@ -73,7 +76,14 @@ void add_polygon(Arrangement& arr, const std::string& name, InputIterator begin,
   X_monotone_curve_2 seg(*it, *begin);
   std::cout << "  " << seg << "\n";
   CGAL::insert(arr, seg);
-  observer.detach();
+  CGAL_assertion(arr.number_of_faces() == 2);
+  auto unbounded_face = arr.unbounded_face();
+  CGAL_assertion(unbounded_face->number_of_inner_ccbs() == 1);
+  auto inner_ccb_it = unbounded_face->inner_ccbs_begin();
+  auto curr = *inner_ccb_it;
+  auto inner_face = curr->twin()->face();
+  inner_face->data().push_back(name);
+  return arr;
 }
 
 //! Load all polygons from an input file
@@ -114,58 +124,14 @@ bool load_polygons_from_file(const std::string& filename, Arrangement& arr) {
       points.emplace_back(x, y);
     }
 
-    add_polygon(arr, name, points.begin(), points.end());
+    Arrangement pgn_arr = polygon_arrangement(name, points.begin(), points.end());
+    Arrangement new_arr;
+    Overlay_traits overlay_traits;
+    CGAL::overlay(arr, pgn_arr, new_arr, overlay_traits);
+    arr = new_arr;
   }
 
   return true;
-}
-
-//!
-Names update_names(Halfedge_handle e, Names& names, const Traits& traits) {
-  auto cmp_endpoints = traits.compare_endpoints_xy_2_object();
-  Names new_names;
-  auto& delta_names = e->data();
-  auto he_dir = e->direction();
-  auto curve_dir = cmp_endpoints(e->curve());
-  if (((curve_dir == CGAL::LARGER) && (he_dir == CGAL::ARR_LEFT_TO_RIGHT)) ||
-      ((curve_dir == CGAL::SMALLER) && (he_dir == CGAL::ARR_RIGHT_TO_LEFT))) {
-    new_names = names;
-    new_names.insert(new_names.end(), delta_names.begin(), delta_names.end());
-    return new_names;
-  }
-  for (const auto& name : names) {
-    if (std::find(delta_names.begin(), delta_names.end(), name) == delta_names.end()) new_names.push_back(name);
-  }
-  return new_names;
-}
-
-//!
-void process(Face_handle f, Names& names, const Traits& traits) {
-  if (f->data().first) return;
-  f->set_data(std::make_pair(true, names));
-
-  for (auto it = f->inner_ccbs_begin(); it != f->inner_ccbs_end(); ++it) {
-    auto curr = *it;
-    do {
-      auto inner_face = curr->twin()->face();
-      if (inner_face->data().first) continue;
-      Names new_names = update_names(curr, names, traits);
-      process(inner_face, new_names, traits);
-    } while (++curr != *it);
-  }
-
-  // Traverse the outer boundary.
-  if (f->is_unbounded()) return;
-
-  for (auto it = f->outer_ccbs_begin(); it != f->outer_ccbs_end(); ++it) {
-    auto curr = *it;
-    do {
-      auto outer_face = curr->twin()->face();
-      if (outer_face->data().first) continue;
-      Names new_names = update_names(curr, names, traits);
-      process(outer_face, new_names, traits);
-    } while (++curr != *it);
-  }
 }
 
 //! The main entry
@@ -233,19 +199,11 @@ int main(int argc, char* argv[]) {
   };
   CGAL::draw(arr, gso, "2D Arrangement");
 
-  // Initialize the "visited" flag of all faces
-  for (auto it = arr.faces_begin(); it != arr.faces_end(); ++it) it->data().first = false;
-
-  // Traverse the arrangement and for each face assign the names of the covering polygons
-  const Traits& traits = *(arr.geometry_traits());
-  Names names;
-  process(arr.unbounded_face(), names, traits);
-
   // Print results
   std::size_t i = 0;
   for (auto it = arr.faces_begin(); it != arr.faces_end(); ++it) {
     std::cout << "Face (" << i++ << "): ";
-    for (const auto& name : it->data().second) std::cout << name << " ";
+    for (const auto& name : it->data()) std::cout << name << " ";
     std::cout << std::endl;
   }
   return 0;
