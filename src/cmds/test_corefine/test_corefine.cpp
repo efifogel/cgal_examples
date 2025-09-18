@@ -8,7 +8,7 @@
 #include <boost/program_options.hpp>
 
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
-// #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/boost/graph/selection.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
@@ -18,9 +18,10 @@
 #include <CGAL/Basic_viewer.h>
 #include <CGAL/draw_surface_mesh.h>
 #include <CGAL/Polygon_mesh_processing/manifoldness.h>
+#include <CGAL/IO/polygon_soup_io.h>
 
-using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
-// using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
+using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
+// using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
 
 using Mesh = CGAL::Surface_mesh<Kernel::Point_3>;
 using vertex_descriptor = boost::graph_traits<Mesh>::vertex_descriptor;
@@ -40,12 +41,46 @@ struct Vector_pmap_wrapper {
   friend void put(const Vector_pmap_wrapper& m, face_descriptor f, bool b) { m.vect[f] = b; }
 };
 
+// enum class Op { ALL = 0, DIFFERENCE, INTERSECTION, UNION };
+using Op = PMP::Corefinement::Boolean_operation_type;
+
+//! Names of edge operations.
+static const char* s_op_names[] = { "union", "intersection", "tm1_minus_tm2", "tm2_minus_tm1", "none" };
+
+//! Convert Op enumeration to std::size_t
+inline std::size_t to_index(Op op) { return static_cast<std::size_t>(op); }
+
+namespace std {
+
+template <typename OutputStream>
+inline OutputStream& operator<<(OutputStream& os, Op op) {
+  os << s_op_names[to_index(op)];
+  return os;
+}
+
+//! Import a thread type from an input stream.
+template <typename InputStream>
+inline InputStream& operator>>(InputStream& is, Op& op) {
+  std::string name;
+  is >> name;
+  auto it = std::find(std::begin(s_op_names), std::end(s_op_names), name);
+  if (it == std::end(s_op_names)) throw std::invalid_argument(name);
+  auto diff = std::distance(std::begin(s_op_names), it);
+  op = static_cast<Op>(diff);
+  return is;
+}
+
+}
+
+//! Main entry
 int main(int argc, char* argv[]) {
   bool do_draw = false;
   std::size_t verbose = 0;
   std::string input_dir = ".";
   std::string filename1;
   std::string filename2;
+  bool corefine = false;
+  Op op = PMP::Corefinement::TM1_MINUS_TM2;
 
   try {
     // Define options
@@ -57,6 +92,8 @@ int main(int argc, char* argv[]) {
       ("draw,d", po::value<bool>(&do_draw)->implicit_value(false), "set draw")
       ("input-directory,i", po::value<std::string>(&input_dir)->default_value("."),
        "input directory (default: current directory)")
+      ("op,o", po::value<Op>(&op)->default_value(PMP::Corefinement::TM1_MINUS_TM2), "operation")
+      ("corefine,c", po::value<bool>(&corefine)->implicit_value(false), "set corefine")
       ("filename1", po::value<std::string>(), "First file name")
       ("filename2", po::value<std::string>(), "Second file name");
     ;
@@ -126,12 +163,83 @@ int main(int argc, char* argv[]) {
     mesh1.add_property_map<edge_descriptor,bool>("e:is_constrained", false).first;
 
   PMP::Corefinement::Non_manifold_output_visitor<Mesh> visitor(mesh1, mesh2);
-  Mesh difference;
-  bool valid_difference = PMP::corefine_and_compute_difference(mesh1, mesh2, difference, params::visitor(visitor));
+  Mesh result;
+  bool valid_result;
 
-  if (valid_difference) {
+  if (corefine) {
+    std::array<std::optional<Mesh*>, 4> results;
+    std::array<bool, 4> valid_results;
+    switch (op) {
+     case PMP::Corefinement::UNION:
+      results[PMP::Corefinement::INTERSECTION] = &result;
+      valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
+                                                                   params::default_values(), // mesh1 np
+                                                                   params::default_values(), // mesh2 np
+                                                                   std::make_tuple(params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
+                                                                                   params::default_values(),
+                                                                                   params::default_values(),
+                                                                                   params::default_values()));
+      break;
+
+     case PMP::Corefinement::INTERSECTION:
+      results[PMP::Corefinement::UNION] = &result;
+      valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
+                                                                   params::default_values(), // mesh1 np
+                                                                   params::default_values(), // mesh2 np
+                                                                   std::make_tuple(params::default_values(),
+                                                                                   params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
+                                                                                   params::default_values(),
+                                                                                   params::default_values()));
+      break;
+
+     case PMP::Corefinement::TM1_MINUS_TM2:
+      results[PMP::Corefinement::TM1_MINUS_TM2] = &result;
+      valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
+                                                                   params::default_values(), // mesh1 np
+                                                                   params::default_values(), // mesh2 np
+                                                                   std::make_tuple(params::default_values(),
+                                                                                   params::default_values(),
+                                                                                   params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
+                                                                                   params::default_values()));
+      break;
+
+     case PMP::Corefinement::TM2_MINUS_TM1:
+      results[PMP::Corefinement::TM2_MINUS_TM1] = &result;
+      valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
+                                                                   params::default_values(), // mesh1 np
+                                                                   params::default_values(), // mesh2 np
+                                                                   std::make_tuple(params::default_values(),
+                                                                                   params::default_values(),
+                                                                                   params::default_values(),
+                                                                                   params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result))));
+      break;
+    }
+
+    valid_result = valid_results[op];
+  }
+  else {
+    switch (op) {
+     case PMP::Corefinement::UNION:
+      valid_result = PMP::corefine_and_compute_union(mesh1, mesh2, result, params::visitor(visitor));
+      break;
+
+     case PMP::Corefinement::INTERSECTION:
+      valid_result = PMP::corefine_and_compute_intersection(mesh1, mesh2, result, params::visitor(visitor));
+      break;
+
+     case PMP::Corefinement::TM1_MINUS_TM2:
+      valid_result = PMP::corefine_and_compute_difference(mesh1, mesh2, result, params::visitor(visitor));
+      break;
+
+     case PMP::Corefinement::TM2_MINUS_TM1:
+      valid_result = PMP::corefine_and_compute_difference(mesh2, mesh1, result, params::visitor(visitor));
+      break;
+    }
+  }
+
+  if (valid_result) {
     std::cout << "Difference was successfully computed\n";
-    auto self_intersect = PMP::duplicate_non_manifold_vertices(difference);
+    auto self_intersect = PMP::duplicate_non_manifold_vertices(result);
     if (self_intersect) {
       std::cout << "The output self intersect as a result of duplicating non-manifold vertices\n";
     }
@@ -142,54 +250,15 @@ int main(int argc, char* argv[]) {
     std::vector<std::array<std::size_t, 3>> polygons;
 
     visitor.extract_tm1_minus_tm2(points, polygons);
-    CGAL::IO::write_polygon_soup("inter_soup.off", points, polygons, CGAL::parameters::stream_precision(17));
+    // CGAL::IO::write_polygon_soup("inter_soup.off", points, polygons, CGAL::parameters::stream_precision(17));
     // make the soup topologically manifold (but geometrically self-intersecting)
     PMP::orient_polygon_soup(points, polygons);
     // fill a mesh with the intersection
-    PMP::polygon_soup_to_polygon_mesh(points, polygons, difference);
+    PMP::polygon_soup_to_polygon_mesh(points, polygons, result);
   }
 
-  CGAL::draw(difference, "difference");
-  CGAL::IO::write_polygon_mesh("difference.off", difference, CGAL::parameters::stream_precision(17));
-
-#if 0
-  bool valid_difference = PMP::corefine_and_compute_difference(mesh1,
-                                                               mesh2,
-                                                               difference,
-                                                               params::default_values(), // default parameters for mesh1
-                                                               params::default_values(), // default parameters for mesh2
-                                                               params::edge_is_constrained_map(is_constrained_map));
-
-  // collect faces incident to a constrained edge
-  std::vector<face_descriptor> selected_faces;
-  std::vector<bool> is_selected(num_faces(mesh1), false);
-  for (edge_descriptor e : edges(mesh1))
-    if (is_constrained_map[e]) {
-      // insert all faces incident to the target vertex
-      for (halfedge_descriptor h : halfedges_around_target(halfedge(e,mesh1),mesh1)) {
-        if (! is_border(h, mesh1)) {
-          face_descriptor f=face(h, mesh1);
-          if (! is_selected[f]) {
-            selected_faces.push_back(f);
-            is_selected[f]=true;
-          }
-        }
-      }
-    }
-
-  // increase the face selection
-  CGAL::expand_face_selection(selected_faces, mesh1, 2,
-    Vector_pmap_wrapper(is_selected), std::back_inserter(selected_faces));
-
-  std::cout << selected_faces.size()
-            << " faces were selected for the remeshing step\n";
-
-  // remesh the region around the intersection polylines
-  PMP::isotropic_remeshing(selected_faces, 0.02, mesh1,
-                           params::edge_is_constrained_map(is_constrained_map));
-
-  CGAL::IO::write_polygon_mesh("difference_remeshed.off", mesh1, CGAL::parameters::stream_precision(17));
-#endif
+  CGAL::draw(result, "result");
+  CGAL::IO::write_polygon_mesh("result.off", result, CGAL::parameters::stream_precision(17));
 
   return 0;
 }
