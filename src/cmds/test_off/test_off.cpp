@@ -17,12 +17,17 @@
 
 #include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
 #include <CGAL/IO/Color.h>
+#include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <CGAL/Polygon_mesh_processing/connected_components.h>
 #include <CGAL/Polygon_mesh_processing/orientation.h>
+#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 
 #if ! defined(USE_SURFACE_MESH)
 #include "Extended_polyhedron_items.h"
 #endif
+
+#include "merge_coplanar_facets.h"
+#include "triangulate_faces.h"
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 
@@ -104,6 +109,14 @@ int main(int argc, char* argv[]) {
     gso.colored_face=[](const Mesh&, Face_descriptor) -> bool { return true; };
     gso.face_color=[&](const Mesh& mesh, Face_descriptor fd) -> CGAL::IO::Color { return get(fcolors, fd); };
   }
+  CGAL::draw(mesh, gso, filename);
+
+  using Vector_3 = typename Kernel::Vector_3;
+  Kernel kernel;
+  auto np = CGAL::parameters::geom_traits(kernel);
+  auto normals = mesh.add_property_map<Face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+  PMP::compute_face_normals(mesh, normals, np);
+  merge_coplanar_facets(mesh, normals, np);
 
   CGAL::draw(mesh, gso, filename);
 
@@ -117,7 +130,13 @@ int main(int argc, char* argv[]) {
 
   // Triangular mesh
   auto is_tri = CGAL::is_triangle_mesh(mesh);
-  if (! is_tri) std::cerr << "The mesh is not triangular\n";
+  if (! is_tri) {
+    std::cerr << "The mesh is not triangular; triangulating\n";
+    // PMP::triangulate_faces(mesh, CGAL::parameters::geom_traits(kernel));
+    PMP::compute_face_normals(mesh, normals, np);
+    triangulate_faces(mesh, normals);
+    CGAL::draw(mesh, gso, filename);
+  }
 
   // Does self intersect
   auto self_intersect = PMP::does_self_intersect(mesh);
