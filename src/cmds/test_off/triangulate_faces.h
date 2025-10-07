@@ -283,7 +283,7 @@ bool triangulate_face(typename boost::graph_traits<PolygonMesh>::face_descriptor
     }
 
     // std::cout << std::string(indent, ' ') << "triangulate_face() degenerate 2 end\n";
-    return rc1 && rc2;
+    return rc1 || rc2;
   }
 
   // std::cout << std::string(indent, ' ') << "triangulate_face() non-degenerate\n";
@@ -352,7 +352,7 @@ bool triangulate_face(typename boost::graph_traits<PolygonMesh>::face_descriptor
 /*! Triangulate a mesh
  */
 template <typename PolygonMesh, typename Map, typename NamedParameters = CGAL::parameters::Default_named_parameters>
-void triangulate_faces(PolygonMesh& mesh, const Map& normals,
+bool triangulate_faces(PolygonMesh& mesh, const Map& normals,
                        const NamedParameters& np = CGAL::parameters::default_values()) {
   // There is a bug in CGAL related to the triangulation of the facets of
   // a face graph. Thus, we use a workaround.
@@ -373,6 +373,7 @@ void triangulate_faces(PolygonMesh& mesh, const Map& normals,
   }
 
   // Iterates on the vector of face descriptors
+  auto res = true;
   for (auto fd : facets) {
     auto hd = halfedge(fd, mesh);
     auto size = CGAL::halfedges_around_face(hd, mesh).size();
@@ -380,8 +381,9 @@ void triangulate_faces(PolygonMesh& mesh, const Map& normals,
       triangulate_quad(fd, mesh, np);
       continue;
     }
-    triangulate_face(fd, mesh, get(normals, fd), np);
+    if (! triangulate_face(fd, mesh, get(normals, fd), np)) res = false;
   }
+  return res;
 }
 
 #endif
