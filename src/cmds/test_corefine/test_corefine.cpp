@@ -7,18 +7,19 @@
 
 #include <boost/program_options.hpp>
 
+#include <CGAL/Basic_viewer.h>
+#include <CGAL/boost/graph/selection.h>
+#include <CGAL/draw_surface_mesh.h>
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
-#include <CGAL/boost/graph/selection.h>
-#include <CGAL/Surface_mesh.h>
+#include <CGAL/Graphics_scene_options.h>
+#include <CGAL/IO/polygon_soup_io.h>
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
 #include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
-#include <CGAL/Polygon_mesh_processing/remesh.h>
-#include <CGAL/Graphics_scene_options.h>
-#include <CGAL/Basic_viewer.h>
-#include <CGAL/draw_surface_mesh.h>
 #include <CGAL/Polygon_mesh_processing/manifoldness.h>
-#include <CGAL/IO/polygon_soup_io.h>
+#include <CGAL/Polygon_mesh_processing/remesh.h>
+#include <CGAL/Polygon_mesh_processing/stitch_borders.h>
+#include <CGAL/Surface_mesh.h>
 
 using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
 // using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
@@ -166,95 +167,102 @@ int main(int argc, char* argv[]) {
   Mesh result;
   bool valid_result;
 
-  if (corefine) {
-    std::array<std::optional<Mesh*>, 4> results;
-    std::array<bool, 4> valid_results;
-    switch (op) {
-     case PMP::Corefinement::UNION:
-      results[PMP::Corefinement::INTERSECTION] = &result;
-      valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                   params::default_values(), // mesh1 np
-                                                                   params::default_values(), // mesh2 np
-                                                                   std::make_tuple(params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
-                                                                                   params::default_values(),
-                                                                                   params::default_values(),
-                                                                                   params::default_values()));
-      break;
+  try {
+    if (corefine) {
+      std::array<std::optional<Mesh*>, 4> results;
+      std::array<bool, 4> valid_results;
+      switch (op) {
+       case PMP::Corefinement::UNION:
+        results[PMP::Corefinement::INTERSECTION] = &result;
+        valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
+                                                                     params::default_values(), // mesh1 np
+                                                                     params::default_values(), // mesh2 np
+                                                                     std::make_tuple(params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
+                                                                                     params::default_values(),
+                                                                                     params::default_values(),
+                                                                                     params::default_values()));
+        break;
 
-     case PMP::Corefinement::INTERSECTION:
-      results[PMP::Corefinement::UNION] = &result;
-      valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                   params::default_values(), // mesh1 np
-                                                                   params::default_values(), // mesh2 np
-                                                                   std::make_tuple(params::default_values(),
-                                                                                   params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
-                                                                                   params::default_values(),
-                                                                                   params::default_values()));
-      break;
+       case PMP::Corefinement::INTERSECTION:
+        results[PMP::Corefinement::UNION] = &result;
+        valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
+                                                                     params::default_values(), // mesh1 np
+                                                                     params::default_values(), // mesh2 np
+                                                                     std::make_tuple(params::default_values(),
+                                                                                     params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
+                                                                                     params::default_values(),
+                                                                                     params::default_values()));
+        break;
 
-     case PMP::Corefinement::TM1_MINUS_TM2:
-      results[PMP::Corefinement::TM1_MINUS_TM2] = &result;
-      valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                   params::default_values(), // mesh1 np
-                                                                   params::default_values(), // mesh2 np
-                                                                   std::make_tuple(params::default_values(),
-                                                                                   params::default_values(),
-                                                                                   params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
-                                                                                   params::default_values()));
-      break;
+       case PMP::Corefinement::TM1_MINUS_TM2:
+        results[PMP::Corefinement::TM1_MINUS_TM2] = &result;
+        valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
+                                                                     params::default_values(), // mesh1 np
+                                                                     params::default_values(), // mesh2 np
+                                                                     std::make_tuple(params::default_values(),
+                                                                                     params::default_values(),
+                                                                                     params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
+                                                                                     params::default_values()));
+        break;
 
-     case PMP::Corefinement::TM2_MINUS_TM1:
-      results[PMP::Corefinement::TM2_MINUS_TM1] = &result;
-      valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                   params::default_values(), // mesh1 np
-                                                                   params::default_values(), // mesh2 np
-                                                                   std::make_tuple(params::default_values(),
-                                                                                   params::default_values(),
-                                                                                   params::default_values(),
-                                                                                   params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result))));
-      break;
+       case PMP::Corefinement::TM2_MINUS_TM1:
+        results[PMP::Corefinement::TM2_MINUS_TM1] = &result;
+        valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
+                                                                     params::default_values(), // mesh1 np
+                                                                     params::default_values(), // mesh2 np
+                                                                     std::make_tuple(params::default_values(),
+                                                                                     params::default_values(),
+                                                                                     params::default_values(),
+                                                                                     params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result))));
+        break;
+      }
+
+      valid_result = valid_results[op];
+    }
+    else {
+      switch (op) {
+       case PMP::Corefinement::UNION:
+        valid_result = PMP::corefine_and_compute_union(mesh1, mesh2, result, params::visitor(visitor));
+        break;
+
+       case PMP::Corefinement::INTERSECTION:
+        valid_result = PMP::corefine_and_compute_intersection(mesh1, mesh2, result, params::visitor(visitor));
+        break;
+
+       case PMP::Corefinement::TM1_MINUS_TM2:
+        valid_result = PMP::corefine_and_compute_difference(mesh1, mesh2, result,
+                                                            params::visitor(visitor).throw_on_self_intersection(true));
+        break;
+
+       case PMP::Corefinement::TM2_MINUS_TM1:
+        valid_result = PMP::corefine_and_compute_difference(mesh2, mesh1, result, params::visitor(visitor));
+        break;
+      }
     }
 
-    valid_result = valid_results[op];
-  }
-  else {
-    switch (op) {
-     case PMP::Corefinement::UNION:
-      valid_result = PMP::corefine_and_compute_union(mesh1, mesh2, result, params::visitor(visitor));
-      break;
+    if (valid_result) {
+      std::cout << "Difference was successfully computed\n";
+      auto self_intersect = PMP::duplicate_non_manifold_vertices(result);
+      if (self_intersect) {
+        std::cout << "The output self intersect as a result of duplicating non-manifold vertices\n";
+      }
+    }
+    else {
+      std::cout << "Difference failed; resorting to handling a non-manifild result\n";
+      std::vector<Kernel::Point_3> points;
+      std::vector<std::array<std::size_t, 3>> polygons;
 
-     case PMP::Corefinement::INTERSECTION:
-      valid_result = PMP::corefine_and_compute_intersection(mesh1, mesh2, result, params::visitor(visitor));
-      break;
-
-     case PMP::Corefinement::TM1_MINUS_TM2:
-      valid_result = PMP::corefine_and_compute_difference(mesh1, mesh2, result, params::visitor(visitor));
-      break;
-
-     case PMP::Corefinement::TM2_MINUS_TM1:
-      valid_result = PMP::corefine_and_compute_difference(mesh2, mesh1, result, params::visitor(visitor));
-      break;
+      visitor.extract_tm1_minus_tm2(points, polygons);
+      // CGAL::IO::write_polygon_soup("inter_soup.off", points, polygons, CGAL::parameters::stream_precision(17));
+      // make the soup topologically manifold (but geometrically self-intersecting)
+      PMP::orient_polygon_soup(points, polygons);
+      // fill a mesh with the intersection
+      PMP::polygon_soup_to_polygon_mesh(points, polygons, result);
+      PMP::stitch_borders(result, params::apply_per_connected_component(true));
     }
   }
-
-  if (valid_result) {
-    std::cout << "Difference was successfully computed\n";
-    auto self_intersect = PMP::duplicate_non_manifold_vertices(result);
-    if (self_intersect) {
-      std::cout << "The output self intersect as a result of duplicating non-manifold vertices\n";
-    }
-  }
-  else {
-    std::cout << "Difference failed; resorting to handling a non-manifild result\n";
-    std::vector<Kernel::Point_3> points;
-    std::vector<std::array<std::size_t, 3>> polygons;
-
-    visitor.extract_tm1_minus_tm2(points, polygons);
-    // CGAL::IO::write_polygon_soup("inter_soup.off", points, polygons, CGAL::parameters::stream_precision(17));
-    // make the soup topologically manifold (but geometrically self-intersecting)
-    PMP::orient_polygon_soup(points, polygons);
-    // fill a mesh with the intersection
-    PMP::polygon_soup_to_polygon_mesh(points, polygons, result);
+  catch (const PMP::Corefinement::Self_intersection_exception& e) {
+    std::cerr << "Caught an exception: " << e.what() << std::endl;
   }
 
   CGAL::draw(result, "result");

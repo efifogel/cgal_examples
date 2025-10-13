@@ -21,6 +21,7 @@
 #include <CGAL/Polygon_mesh_processing/connected_components.h>
 #include <CGAL/Polygon_mesh_processing/orientation.h>
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
+#include <CGAL/Polygon_mesh_processing/repair_degeneracies.h>
 
 #if ! defined(USE_SURFACE_MESH)
 #include "Extended_polyhedron_items.h"
@@ -111,6 +112,11 @@ int main(int argc, char* argv[]) {
   }
   CGAL::draw(mesh, gso, filename);
 
+  // Repair
+  PMP::remove_degenerate_faces(mesh);
+  PMP::remove_degenerate_edges(mesh);
+
+  // Merge coplanar faces
   using Vector_3 = typename Kernel::Vector_3;
   Kernel kernel;
   auto np = CGAL::parameters::geom_traits(kernel);
