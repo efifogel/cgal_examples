@@ -72,7 +72,6 @@ bool construct_triangulation(typename boost::graph_traits<PolygonMesh>::face_des
   using Graph_traits = boost::graph_traits<PolygonMesh>;
   using vertex_descriptor = typename Graph_traits::vertex_descriptor;
   using halfedge_descriptor = typename Graph_traits::halfedge_descriptor;
-  using face_descriptor = typename Graph_traits::face_descriptor;
   using VPM = typename CGAL::GetVertexPointMap<PolygonMesh, NamedParameters>::type;
   using Point = typename boost::property_traits<VPM>::value_type;
   VPM vpm = CGAL::parameters::choose_parameter(CGAL::parameters::get_parameter(np, CGAL::internal_np::vertex_point),
