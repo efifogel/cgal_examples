@@ -6,9 +6,9 @@
 
 #include <boost/range/value_type.hpp>
 
-#include <CGAL/Projection_traits_3.h>
 #include <CGAL/boost/graph/Euler_operations.h>
 #include <CGAL/boost/graph/named_params_helper.h>
+#include <CGAL/Projection_traits_3.h>
 #include <CGAL/Named_function_parameters.h>
 #include <CGAL/Triangulation_data_structure_2.h>
 
@@ -72,12 +72,14 @@ bool construct_triangulation(typename boost::graph_traits<PolygonMesh>::face_des
   using Graph_traits = boost::graph_traits<PolygonMesh>;
   using vertex_descriptor = typename Graph_traits::vertex_descriptor;
   using halfedge_descriptor = typename Graph_traits::halfedge_descriptor;
+  using face_descriptor = typename Graph_traits::face_descriptor;
   using VPM = typename CGAL::GetVertexPointMap<PolygonMesh, NamedParameters>::type;
+  using Point = typename boost::property_traits<VPM>::value_type;
   VPM vpm = CGAL::parameters::choose_parameter(CGAL::parameters::get_parameter(np, CGAL::internal_np::vertex_point),
                                                get_property_map(CGAL::vertex_point, mesh));
 
-  //
-  std::unordered_map<vertex_descriptor, bool> processed;
+  using Vertex_handle = typename Triangulation::Vertex_handle;
+  std::unordered_map<Vertex_handle, bool> processed;
 
   bool res(true);
   auto hd = halfedge(fd, mesh);
@@ -85,10 +87,12 @@ bool construct_triangulation(typename boost::graph_traits<PolygonMesh>::face_des
   auto range_begin = range.begin();
   auto first_hd = *range_begin;
   auto first_vd = CGAL::target(first_hd, mesh);
-  processed[first_vd] = true;
-  auto start = tri.insert(get(vpm, first_vd));
 
-  // std::cout << std::string(indent, ' ') << get(vpm, first_vd) << std::endl;
+  const Point& p = get(vpm, first_vd);
+  auto start = tri.insert(p);
+  processed[start] = true;
+
+  // std::cout << std::string(indent, ' ') << p << std::endl;
 
   start->info() = first_hd;
   auto prev = start;
@@ -100,22 +104,21 @@ bool construct_triangulation(typename boost::graph_traits<PolygonMesh>::face_des
   for (auto hd : skip_first_range) {
     auto vd = CGAL::target(hd, mesh);
 
-    auto next = tri.insert(get(vpm, vd));
+    const Point& p = get(vpm, vd);
+    auto next = tri.insert(p);
+    auto [it, inserted] = processed.insert({ next, true });
 
-    // std::cout << std::string(indent, ' ') << get(vpm, vd) << std::endl;
+    // std::cout << std::string(indent, ' ') << p << std::endl;
 
     // next->info() = (next->info() == null_hd) ? hd : null_hd;
+    // if (next->info() == null_hd) { ... }
     next->info() = hd;
-    auto [it, inserted] = processed.insert({ vd, true });
     if (! inserted) {
       res = false;
       next->info() = null_hd;
+      // std::cout << std::string(indent, ' ') << "XXXXX set res to false\n";
     }
 
-    if (next->info() == null_hd) {
-      // std::cout << "XXXXX set res to false\n";
-      res = false;
-    }
     tri.insert_constraint(prev, next);
     prev = next;
   }
