@@ -20,8 +20,9 @@
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <CGAL/Polygon_mesh_processing/connected_components.h>
 #include <CGAL/Polygon_mesh_processing/orientation.h>
-#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
+#include <CGAL/Polygon_mesh_processing/remesh_planar_patches.h>
 #include <CGAL/Polygon_mesh_processing/repair_degeneracies.h>
+#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 
 #if ! defined(USE_SURFACE_MESH)
 #include "Extended_polyhedron_items.h"
@@ -121,8 +122,15 @@ int main(int argc, char* argv[]) {
   Kernel kernel;
   auto np = CGAL::parameters::geom_traits(kernel);
   auto normals = mesh.add_property_map<Face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+
+#if 1
   PMP::compute_face_normals(mesh, normals, np);
   merge_coplanar_facets(mesh, normals, np);
+#else
+  Mesh temp;
+  PMP::remesh_planar_patches(mesh, temp);
+  std::swap(mesh, temp);
+#endif
 
   CGAL::draw(mesh, gso, filename);
 

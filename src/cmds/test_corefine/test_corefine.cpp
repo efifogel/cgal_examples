@@ -6,6 +6,7 @@
 #include <array>
 
 #include <boost/program_options.hpp>
+#include <boost/container/small_vector.hpp>
 
 #include <CGAL/Basic_viewer.h>
 #include <CGAL/boost/graph/selection.h>
@@ -14,12 +15,27 @@
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Graphics_scene_options.h>
 #include <CGAL/IO/polygon_soup_io.h>
+#include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <CGAL/Polygon_mesh_processing/corefinement.h>
 #include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
 #include <CGAL/Polygon_mesh_processing/manifoldness.h>
+#include <CGAL/Polygon_mesh_processing/orientation.h>
+#include <CGAL/Polygon_mesh_processing/polygon_mesh_to_polygon_soup.h>
 #include <CGAL/Polygon_mesh_processing/remesh.h>
+#include <CGAL/Polygon_mesh_processing/remesh_planar_patches.h>
 #include <CGAL/Polygon_mesh_processing/stitch_borders.h>
+#include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Surface_mesh.h>
+
+#include "merge_coplanar_facets.h"
+#include "triangulate_faces.h"
+#include "boolean_operations_3.h"
+
+#ifdef CGAL_LINKED_WITH_TBB
+using Concurrency_tag = CGAL::Parallel_tag;
+#else
+using Concurrency_tag = CGAL::Sequential_tag;
+#endif
 
 using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
 // using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
@@ -262,8 +278,26 @@ int main(int argc, char* argv[]) {
     }
   }
   catch (const PMP::Corefinement::Self_intersection_exception& e) {
+    using Triangle = boost::container::small_vector<std::size_t, 3>;
+
     std::cerr << "Caught an exception: " << e.what() << std::endl;
+    std::vector<Kernel::Point_3> points1, points2, points;
+    std::vector<Triangle> triangles1, triangles2, triangles;
+    PMP::polygon_mesh_to_polygon_soup(mesh1, points1, triangles1);
+    PMP::polygon_mesh_to_polygon_soup(mesh2, points2, triangles2);
+    CGAL::compute_difference<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
+    PMP::polygon_soup_to_polygon_mesh(points, triangles, result);
   }
+
+  Kernel kernel;
+  auto np = CGAL::parameters::geom_traits(kernel);
+  using Vector_3 = typename Kernel::Vector_3;
+  auto normals = result.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+  PMP::compute_face_normals(result, normals, np);
+  merge_coplanar_facets(result, normals, np);
+  CGAL::draw(result, "merged");
+
+  triangulate_faces(result, normals);
 
   CGAL::draw(result, "result");
   CGAL::IO::write_polygon_mesh("result.off", result, CGAL::parameters::stream_precision(17));
