@@ -27,9 +27,10 @@
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Surface_mesh.h>
 
+#include "CGAL/boolean_operations_3.h"
+
 #include "merge_coplanar_facets.h"
 #include "triangulate_faces.h"
-#include "boolean_operations_3.h"
 
 #ifdef CGAL_LINKED_WITH_TBB
 using Concurrency_tag = CGAL::Parallel_tag;
@@ -280,14 +281,19 @@ int main(int argc, char* argv[]) {
   catch (const PMP::Corefinement::Self_intersection_exception& e) {
     using Triangle = boost::container::small_vector<std::size_t, 3>;
 
-    std::cerr << "Caught an exception: " << e.what() << std::endl;
+    std::cout << "Caught an exception: " << e.what() << std::endl;
     std::vector<Kernel::Point_3> points1, points2, points;
     std::vector<Triangle> triangles1, triangles2, triangles;
     PMP::polygon_mesh_to_polygon_soup(mesh1, points1, triangles1);
     PMP::polygon_mesh_to_polygon_soup(mesh2, points2, triangles2);
     CGAL::compute_difference<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
+    PMP::orient_polygon_soup(points, triangles);
     PMP::polygon_soup_to_polygon_mesh(points, triangles, result);
+    PMP::stitch_borders(result, params::apply_per_connected_component(true));
   }
+
+  auto is_closed = CGAL::is_closed(result);
+  if (! is_closed) std::cerr << "The mesh is not closed\n";
 
   Kernel kernel;
   auto np = CGAL::parameters::geom_traits(kernel);
@@ -295,11 +301,9 @@ int main(int argc, char* argv[]) {
   auto normals = result.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
   PMP::compute_face_normals(result, normals, np);
   merge_coplanar_facets(result, normals, np);
-  CGAL::draw(result, "merged");
-
+  CGAL::draw(result, gso, "merged");
   triangulate_faces(result, normals);
-
-  CGAL::draw(result, "result");
+  CGAL::draw(result, gso, "result");
   CGAL::IO::write_polygon_mesh("result.off", result, CGAL::parameters::stream_precision(17));
 
   return 0;
