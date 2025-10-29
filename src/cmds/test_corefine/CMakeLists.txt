@@ -15,7 +15,7 @@ include(CGAL_Eigen3_support)
 if (NOT TARGET CGAL::Eigen3_support)
   message(FATAL_ERROR "This program requires the Eigen3 library, and will not be compiled.")
 endif()
-
+include_directories(include)
 add_executable(test_corefine test_corefine.cpp)
 target_include_directories(test_corefine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../test_off)
 target_link_libraries(test_corefine PUBLIC CGAL::CGAL_Basic_viewer CGAL::Eigen3_support Boost::program_options)
