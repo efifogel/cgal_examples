@@ -50,13 +50,13 @@ void sort_intersections(const Line& line, InputIterator begin, InputIterator end
   std::sort(begin, end,
             [&](Segment_intersection a, Segment_intersection b) {
               const Point* pa = std::get_if<Point>(&(a->first));
-              if (not pa) {
+              if (! pa) {
                 Segment* seg = std::get_if<Segment>(&(a->first));
                 CGAL_assertion(seg);
                 pa = &(seg->source());
               }
               const Point* pb = std::get_if<Point>(&(b->first));
-              if (not pb) {
+              if (! pb) {
                 Segment* seg = std::get_if<Segment>(&(b->first));
                 CGAL_assertion(seg);
                 pb = &(seg->source());
