@@ -12,9 +12,13 @@
 #include <CGAL/draw_surface_mesh.h>
 #include <CGAL/Polyhedron_3.h>
 #include <CGAL/draw_polyhedron.h>
+#include <CGAL/Polygon_mesh_processing/compute_normal.h>
 
 #include <CGAL/boost/graph/Euler_operations.h>
 #include <CGAL/boost/graph/generators.h>
+
+namespace PMP = CGAL::Polygon_mesh_processing;
+namespace params = CGAL::parameters;
 
 using Kernel = CGAL::Simple_cartesian<double>;
 using Point = Kernel::Point_3;
@@ -41,7 +45,7 @@ using edge_descriptor = boost::graph_traits<Mesh>::edge_descriptor;
 using face_descriptor = boost::graph_traits<Mesh>::face_descriptor;
 
 template <typename InputIterator>
-void sort_intersections(const Line& line, InputIterator begin, InputIterator end) {
+void sort_intersections(InputIterator begin, InputIterator end, const Line& line) {
   // Line direction and reference point
   Vector dir = line.to_vector();
   Point ref = line.point();
@@ -63,7 +67,7 @@ void sort_intersections(const Line& line, InputIterator begin, InputIterator end
               }
               auto ta = ((*pa - ref) * dir);
               auto tb = ((*pb - ref) * dir);
-              return ta > tb;
+              return ta < tb;
             });
 }
 
@@ -82,8 +86,10 @@ void print_intersections(InputIterator begin, InputIterator end) {
   }
 }
 
-template <typename InputIterator, typename OutputIterator>
-OutputIterator process_intersections(InputIterator begin, InputIterator end, OutputIterator oi) {
+template <typename InputIterator, typename NormalMap, typename OutputIterator>
+OutputIterator process_intersections(InputIterator begin, InputIterator end, const Line& line,
+                                     NormalMap& normals, OutputIterator oi) {
+  Vector dir = line.to_vector();
   Point start;
   bool penetrated = false;
   for (auto it = begin; it != end; ++it) {
@@ -97,7 +103,6 @@ OutputIterator process_intersections(InputIterator begin, InputIterator end, Out
 
     const Point* p = std::get_if<Point>(&(x->first));
     CGAL_assertion(p);
-    std::cout << "XXXX current point " << *p << std::endl;
     auto next = it;
     ++next;
 
@@ -129,7 +134,6 @@ OutputIterator process_intersections(InputIterator begin, InputIterator end, Out
     }
 
     const Point* next_p = std::get_if<Point>(&(next_x->first));
-    std::cout << "XXXX next point " << *next_p << std::endl;
     CGAL_assertion(next_p);
     if (*p != *next_p) {
       // This must be a penetration point
@@ -139,11 +143,39 @@ OutputIterator process_intersections(InputIterator begin, InputIterator end, Out
     }
 
     // Traverse all incident faces...
+    auto fd = x->second;
+    const auto& normal = get(normals, fd);
+    auto d_sign = CGAL::sign(normal * dir);
+    bool tangent = false;
+
+    while (next != end) {
+      Segment_intersection next_x = *next;
+      if (std::get_if<Segment>(&(next_x->first))) break;
+      const Point* next_p = std::get_if<Point>(&(next_x->first));
+      if (*p != *next_p) break;
+      if (! tangent) {
+        auto fd = next_x->second;
+        const auto& normal = get(normals, fd);
+        auto next_d = normal * dir;
+        if (d_sign != CGAL::sign(next_d)) tangent = true;
+      }
+      it = next++;
+    }
+    if (! tangent) {
+      CGAL_assertion(d_sign == CGAL::POSITIVE);
+      penetrated = true;
+      start = *p;
+      continue;
+    }
+    *oi++ = *p;
   }
   return oi;
 }
 
 int main(int argc, char* argv[]) {
+  Kernel kernel;
+  auto np = params::geom_traits(kernel);
+
   Point p(1.0, 0.0, 0.0);
   Point q(0.0, 1.0, 0.0);
   Point r(0.0, 0.0, 1.0);
@@ -155,6 +187,9 @@ int main(int argc, char* argv[]) {
 #else
   mesh.make_tetrahedron(p, q, r, s);
 #endif
+  // Compute face normals
+  auto normals = mesh.add_property_map<face_descriptor, Vector>("f:normals", CGAL::NULL_VECTOR).first;
+  PMP::compute_face_normals(mesh, normals, np);
 
   // constructs AABB tree
   Tree tree(faces(mesh).first, faces(mesh).second, mesh);
@@ -179,15 +214,17 @@ int main(int argc, char* argv[]) {
   CGAL::draw_graphics_scene(scene);
 
   // computes all intersections with segment query (as pairs object - primitive_id)
-  std::vector<Segment_intersection> intersections;
-  tree.all_intersections(line_query, std::back_inserter(intersections));
-  sort_intersections(line_query, intersections.begin(), intersections.end());
-  print_intersections(intersections.begin(), intersections.end());
+  std::vector<Segment_intersection> face_intersections;
+  tree.all_intersections(line_query, std::back_inserter(face_intersections));
+  sort_intersections(face_intersections.begin(), face_intersections.end(), line_query);
+  print_intersections(face_intersections.begin(), face_intersections.end());
 
-  std::vector<std::variant<Point, Segment>> result;
-  process_intersections(intersections.begin(), intersections.end(), std::back_inserter(result));
-  std::cout << "# intersections: " << result.size() << std::endl;
-  for (const auto& x : result) {
+  std::vector<std::variant<Point, Segment>> intersections;
+  process_intersections(face_intersections.begin(), face_intersections.end(), line_query,
+                        normals, std::back_inserter(intersections));
+
+  std::cout << "# intersections: " << intersections.size() << std::endl;
+  for (const auto& x : intersections) {
     const Point* p = std::get_if<Point>(&x);
     if (p) {
       std::cout << "Tangent point " << *p << std::endl;
