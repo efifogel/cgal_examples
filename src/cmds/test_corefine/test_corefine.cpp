@@ -363,7 +363,7 @@ int main(int argc, char* argv[]) {
 
   CGAL::draw(result, gso, "raw");
 
-#if 1
+#if 0
   Kernel kernel;
   auto np = CGAL::parameters::geom_traits(kernel);
   using Vector_3 = typename Kernel::Vector_3;
@@ -371,9 +371,7 @@ int main(int argc, char* argv[]) {
   PMP::compute_face_normals(result, normals, np);
   merge_coplanar_facets(result, normals, np);
   CGAL::draw(result, gso, "merged");
-
   triangulate_faces(result, normals);
-
 #else
   Mesh temp;
   PMP::remesh_planar_patches(result, temp);
