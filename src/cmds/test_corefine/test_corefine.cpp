@@ -64,7 +64,7 @@ struct Vector_pmap_wrapper {
 using Op = PMP::Corefinement::Boolean_operation_type;
 
 //! Names of edge operations.
-static const char* s_op_names[] = { "union", "intersection", "tm1_minus_tm2", "tm2_minus_tm1", "none" };
+static const char* s_op_names[] = { "union", "intersection", "tm1-minus-tm2", "tm2-minus-tm1", "none" };
 
 //! Convert Op enumeration to std::size_t
 inline std::size_t to_index(Op op) { return static_cast<std::size_t>(op); }
@@ -188,27 +188,27 @@ int main(int argc, char* argv[]) {
 #if 1
   try {
     if (corefine) {
-      std::array<std::optional<Mesh*>, 4> results;
+      std::array<std::optional<Mesh*>, 4> results = {};
       std::array<bool, 4> valid_results;
       switch (op) {
        case PMP::Corefinement::UNION:
-        results[PMP::Corefinement::INTERSECTION] = &result;
+        results[PMP::Corefinement::UNION] = &result;
         valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
                                                                      params::throw_on_self_intersection(true), // mesh1 np
                                                                      params::throw_on_self_intersection(true), // mesh2 np
-                                                                     std::make_tuple(params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
+                                                                     std::make_tuple(params::visitor(visitor),
                                                                                      params::default_values(),
                                                                                      params::default_values(),
                                                                                      params::default_values()));
         break;
 
        case PMP::Corefinement::INTERSECTION:
-        results[PMP::Corefinement::UNION] = &result;
+        results[PMP::Corefinement::INTERSECTION] = &result;
         valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
                                                                      params::throw_on_self_intersection(true), // mesh1 np
                                                                      params::throw_on_self_intersection(true), // mesh2 np
                                                                      std::make_tuple(params::default_values(),
-                                                                                     params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
+                                                                                     params::visitor(visitor),
                                                                                      params::default_values(),
                                                                                      params::default_values()));
         break;
@@ -220,7 +220,7 @@ int main(int argc, char* argv[]) {
                                                                      params::throw_on_self_intersection(true), // mesh2 np
                                                                      std::make_tuple(params::default_values(),
                                                                                      params::default_values(),
-                                                                                     params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
+                                                                                     params::visitor(visitor),
                                                                                      params::default_values()));
         break;
 
@@ -232,7 +232,7 @@ int main(int argc, char* argv[]) {
                                                                      std::make_tuple(params::default_values(),
                                                                                      params::default_values(),
                                                                                      params::default_values(),
-                                                                                     params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result))));
+                                                                                     params::visitor(visitor)));
         break;
       }
 
