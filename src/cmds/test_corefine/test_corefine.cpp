@@ -46,6 +46,7 @@ using vertex_descriptor = boost::graph_traits<Mesh>::vertex_descriptor;
 using halfedge_descriptor = boost::graph_traits<Mesh>::halfedge_descriptor;
 using edge_descriptor = boost::graph_traits<Mesh>::edge_descriptor;
 using face_descriptor = boost::graph_traits<Mesh>::face_descriptor;
+using Triangle = boost::container::small_vector<std::size_t, 3>;
 
 namespace po = boost::program_options;
 namespace fs = std::filesystem;
@@ -184,6 +185,7 @@ int main(int argc, char* argv[]) {
   Mesh result;
   bool valid_result;
 
+#if 1
   try {
     if (corefine) {
       std::array<std::optional<Mesh*>, 4> results;
@@ -192,8 +194,8 @@ int main(int argc, char* argv[]) {
        case PMP::Corefinement::UNION:
         results[PMP::Corefinement::INTERSECTION] = &result;
         valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::default_values(), // mesh1 np
-                                                                     params::default_values(), // mesh2 np
+                                                                     params::throw_on_self_intersection(true), // mesh1 np
+                                                                     params::throw_on_self_intersection(true), // mesh2 np
                                                                      std::make_tuple(params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
                                                                                      params::default_values(),
                                                                                      params::default_values(),
@@ -203,8 +205,8 @@ int main(int argc, char* argv[]) {
        case PMP::Corefinement::INTERSECTION:
         results[PMP::Corefinement::UNION] = &result;
         valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::default_values(), // mesh1 np
-                                                                     params::default_values(), // mesh2 np
+                                                                     params::throw_on_self_intersection(true), // mesh1 np
+                                                                     params::throw_on_self_intersection(true), // mesh2 np
                                                                      std::make_tuple(params::default_values(),
                                                                                      params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
                                                                                      params::default_values(),
@@ -214,8 +216,8 @@ int main(int argc, char* argv[]) {
        case PMP::Corefinement::TM1_MINUS_TM2:
         results[PMP::Corefinement::TM1_MINUS_TM2] = &result;
         valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::default_values(), // mesh1 np
-                                                                     params::default_values(), // mesh2 np
+                                                                     params::throw_on_self_intersection(true), // mesh1 np
+                                                                     params::throw_on_self_intersection(true), // mesh2 np
                                                                      std::make_tuple(params::default_values(),
                                                                                      params::default_values(),
                                                                                      params::visitor(visitor).vertex_point_map(get(boost::vertex_point, result)),
@@ -225,8 +227,8 @@ int main(int argc, char* argv[]) {
        case PMP::Corefinement::TM2_MINUS_TM1:
         results[PMP::Corefinement::TM2_MINUS_TM1] = &result;
         valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::default_values(), // mesh1 np
-                                                                     params::default_values(), // mesh2 np
+                                                                     params::throw_on_self_intersection(true), // mesh1 np
+                                                                     params::throw_on_self_intersection(true), // mesh2 np
                                                                      std::make_tuple(params::default_values(),
                                                                                      params::default_values(),
                                                                                      params::default_values(),
@@ -239,11 +241,13 @@ int main(int argc, char* argv[]) {
     else {
       switch (op) {
        case PMP::Corefinement::UNION:
-        valid_result = PMP::corefine_and_compute_union(mesh1, mesh2, result, params::visitor(visitor));
+        valid_result = PMP::corefine_and_compute_union(mesh1, mesh2, result,
+                                                       params::visitor(visitor).throw_on_self_intersection(true));
         break;
 
        case PMP::Corefinement::INTERSECTION:
-        valid_result = PMP::corefine_and_compute_intersection(mesh1, mesh2, result, params::visitor(visitor));
+        valid_result = PMP::corefine_and_compute_intersection(mesh1, mesh2, result,
+                                                              params::visitor(visitor).throw_on_self_intersection(true));
         break;
 
        case PMP::Corefinement::TM1_MINUS_TM2:
@@ -252,24 +256,42 @@ int main(int argc, char* argv[]) {
         break;
 
        case PMP::Corefinement::TM2_MINUS_TM1:
-        valid_result = PMP::corefine_and_compute_difference(mesh2, mesh1, result, params::visitor(visitor));
+        valid_result = PMP::corefine_and_compute_difference(mesh2, mesh1, result,
+                                                            params::visitor(visitor).throw_on_self_intersection(true));
         break;
       }
     }
 
     if (valid_result) {
-      std::cout << "Difference was successfully computed\n";
+      std::cout << "Operation " << op << " was successfully computed\n";
       auto self_intersect = PMP::duplicate_non_manifold_vertices(result);
       if (self_intersect) {
         std::cout << "The output self intersect as a result of duplicating non-manifold vertices\n";
       }
     }
     else {
-      std::cout << "Difference failed; resorting to handling a non-manifild result\n";
+      std::cout << "Operation " << op << " failed; resorting to handling a non-manifild result\n";
       std::vector<Kernel::Point_3> points;
       std::vector<std::array<std::size_t, 3>> polygons;
 
-      visitor.extract_tm1_minus_tm2(points, polygons);
+      switch (op) {
+       case PMP::Corefinement::UNION:
+        visitor.extract_union(points, polygons);
+        break;
+
+       case PMP::Corefinement::INTERSECTION:
+        visitor.extract_intersection(points, polygons);
+        break;
+
+       case PMP::Corefinement::TM1_MINUS_TM2:
+        visitor.extract_tm1_minus_tm2(points, polygons);
+        break;
+
+       case PMP::Corefinement::TM2_MINUS_TM1:
+        visitor.extract_tm2_minus_tm1(points, polygons);
+        break;
+      }
+
       // CGAL::IO::write_polygon_soup("inter_soup.off", points, polygons, CGAL::parameters::stream_precision(17));
       // make the soup topologically manifold (but geometrically self-intersecting)
       PMP::orient_polygon_soup(points, polygons);
@@ -279,22 +301,69 @@ int main(int argc, char* argv[]) {
     }
   }
   catch (const PMP::Corefinement::Self_intersection_exception& e) {
-    using Triangle = boost::container::small_vector<std::size_t, 3>;
-
     std::cout << "Caught an exception: " << e.what() << std::endl;
     std::vector<Kernel::Point_3> points1, points2, points;
     std::vector<Triangle> triangles1, triangles2, triangles;
     PMP::polygon_mesh_to_polygon_soup(mesh1, points1, triangles1);
     PMP::polygon_mesh_to_polygon_soup(mesh2, points2, triangles2);
-    CGAL::compute_difference<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
+
+    switch (op) {
+     case PMP::Corefinement::UNION:
+      CGAL::compute_union<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
+      break;
+
+     case PMP::Corefinement::INTERSECTION:
+      CGAL::compute_intersection<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
+      break;
+
+     case PMP::Corefinement::TM1_MINUS_TM2:
+      CGAL::compute_difference<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
+      break;
+
+     case PMP::Corefinement::TM2_MINUS_TM1:
+      CGAL::compute_difference<Concurrency_tag>(points2, triangles2, points1, triangles1, points, triangles);
+      break;
+    }
+
     PMP::orient_polygon_soup(points, triangles);
     PMP::polygon_soup_to_polygon_mesh(points, triangles, result);
     PMP::stitch_borders(result, params::apply_per_connected_component(true));
   }
+#else
+  std::vector<Kernel::Point_3> points1, points2, points;
+  std::vector<Triangle> triangles1, triangles2, triangles;
+  PMP::polygon_mesh_to_polygon_soup(mesh1, points1, triangles1);
+  PMP::polygon_mesh_to_polygon_soup(mesh2, points2, triangles2);
+
+  switch (op) {
+   case PMP::Corefinement::UNION:
+    CGAL::compute_union<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
+    break;
+
+   case PMP::Corefinement::INTERSECTION:
+    CGAL::compute_intersection<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
+    break;
+
+   case PMP::Corefinement::TM1_MINUS_TM2:
+    CGAL::compute_difference<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
+    break;
+
+   case PMP::Corefinement::TM2_MINUS_TM1:
+    CGAL::compute_difference<Concurrency_tag>(points2, triangles2, points1, triangles1, points, triangles);
+    break;
+  }
+
+  PMP::orient_polygon_soup(points, triangles);
+  PMP::polygon_soup_to_polygon_mesh(points, triangles, result);
+  PMP::stitch_borders(result, params::apply_per_connected_component(true));
+#endif
 
   auto is_closed = CGAL::is_closed(result);
   if (! is_closed) std::cerr << "The mesh is not closed\n";
 
+  CGAL::draw(result, gso, "raw");
+
+#if 1
   Kernel kernel;
   auto np = CGAL::parameters::geom_traits(kernel);
   using Vector_3 = typename Kernel::Vector_3;
@@ -302,7 +371,17 @@ int main(int argc, char* argv[]) {
   PMP::compute_face_normals(result, normals, np);
   merge_coplanar_facets(result, normals, np);
   CGAL::draw(result, gso, "merged");
+
   triangulate_faces(result, normals);
+
+#else
+  Mesh temp;
+  PMP::remesh_planar_patches(result, temp);
+  std::swap(result, temp);
+#endif
+
+  auto is_valid = result.is_valid();
+  if (! is_valid) std::cerr << "The mesh is not valid\n";
   CGAL::draw(result, gso, "result");
   CGAL::IO::write_polygon_mesh("result.off", result, CGAL::parameters::stream_precision(17));
 
