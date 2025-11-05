@@ -540,7 +540,7 @@ prepare_data(const PointRange& points_1, const TriangleRange& triangles_1,
   time.start();
 #endif
   std::vector<unsigned int> input_ids(nbt_1+nbt_2, 0);
-  for (std::size_t i=nbt_1; i<nbt_2; ++i)
+  for (std::size_t i=nbt_1; i<nbt_1+nbt_2; ++i)
     input_ids[i]=1;
   Autoref_visitor visitor(input_ids, nbt_1, nbt_2);
   //TODO:  investigate if a detection of identical triangles in the input could be interesting
