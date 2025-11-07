@@ -194,45 +194,33 @@ int main(int argc, char* argv[]) {
        case PMP::Corefinement::UNION:
         results[PMP::Corefinement::UNION] = &result;
         valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::throw_on_self_intersection(true), // mesh1 np
-                                                                     params::throw_on_self_intersection(true), // mesh2 np
-                                                                     std::make_tuple(params::visitor(visitor),
-                                                                                     params::default_values(),
-                                                                                     params::default_values(),
-                                                                                     params::default_values()));
+                                                                     params::throw_on_self_intersection(true).
+                                                                     visitor(visitor),
+                                                                     params::throw_on_self_intersection(true));
         break;
 
        case PMP::Corefinement::INTERSECTION:
         results[PMP::Corefinement::INTERSECTION] = &result;
         valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::throw_on_self_intersection(true), // mesh1 np
-                                                                     params::throw_on_self_intersection(true), // mesh2 np
-                                                                     std::make_tuple(params::default_values(),
-                                                                                     params::visitor(visitor),
-                                                                                     params::default_values(),
-                                                                                     params::default_values()));
+                                                                     params::throw_on_self_intersection(true).
+                                                                     visitor(visitor),
+                                                                     params::throw_on_self_intersection(true));
         break;
 
        case PMP::Corefinement::TM1_MINUS_TM2:
         results[PMP::Corefinement::TM1_MINUS_TM2] = &result;
         valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::throw_on_self_intersection(true), // mesh1 np
-                                                                     params::throw_on_self_intersection(true), // mesh2 np
-                                                                     std::make_tuple(params::default_values(),
-                                                                                     params::default_values(),
-                                                                                     params::visitor(visitor),
-                                                                                     params::default_values()));
+                                                                     params::throw_on_self_intersection(true).
+                                                                     visitor(visitor),
+                                                                     params::throw_on_self_intersection(true));
         break;
 
        case PMP::Corefinement::TM2_MINUS_TM1:
         results[PMP::Corefinement::TM2_MINUS_TM1] = &result;
         valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::throw_on_self_intersection(true), // mesh1 np
-                                                                     params::throw_on_self_intersection(true), // mesh2 np
-                                                                     std::make_tuple(params::default_values(),
-                                                                                     params::default_values(),
-                                                                                     params::default_values(),
-                                                                                     params::visitor(visitor)));
+                                                                     params::throw_on_self_intersection(true).
+                                                                     visitor(visitor),
+                                                                     params::throw_on_self_intersection(true));
         break;
       }
 
