@@ -274,7 +274,7 @@ select(const std::vector<Exact_point>& points,
 #endif
 
     std::sort(std::next(to_sort.begin()), to_sort.end(), less);
-    boost::dynamic_bitset<> is_inside_mesh(nb_meshes, 0);
+    boost::dynamic_bitset<> is_inside_mesh(nb_meshes, 0); //indicate the status while turning around the edge
 
     std::vector<bool> init(nb_meshes, false);
     init[input_ids[tref.second]]=true;
@@ -708,9 +708,10 @@ void compute_difference(const PointRange& points_1, const TriangleRange& triangl
 
   for (std::size_t ti=0; ti<out_triangles.size(); ++ti)
   {
-    if (data_out.coplanar_patches[data_out.ccids[ti]]) continue;
+
     if (data_out.input_ids[ti]==0)
     {
+      if (data_out.coplanar_patches[data_out.ccids[ti]] && data_out.coplanar_patches_for_union_and_intersection[data_out.ccids[ti]]) continue;
       if (!data_out.cc_is_inside_per_mesh[1][data_out.ccids[ti]])
       {
         ++nb_out_triangles;
@@ -720,6 +721,7 @@ void compute_difference(const PointRange& points_1, const TriangleRange& triangl
     }
     else
     {
+      if (data_out.coplanar_patches[data_out.ccids[ti]]) continue;
       if (data_out.cc_is_inside_per_mesh[0][data_out.ccids[ti]])
       {
         ++nb_out_triangles;
