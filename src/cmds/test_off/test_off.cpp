@@ -29,11 +29,81 @@
 #include "Extended_polyhedron_items.h"
 #endif
 
-#include "merge_coplanar_facets.h"
-#include "triangulate_faces.h"
+#include "retriangulate_faces.h"
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 namespace params = CGAL::parameters;
+
+template <typename Mesh, typename Map, typename Direction>
+void print_faces_ccw(const Mesh& mesh, const Map& normals, const Direction& bdir, std::size_t min_degree) {
+  std::cout << "#VRML V2.0 utf8\n"
+    "NavigationInfo { type [ \"EXAMINE\" \"ANY\" ] }\n"
+    "Group {\n"
+    "  children [\n";
+
+  using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
+  Kernel kernel;
+  auto eq = kernel.equal_3_object();
+
+  double color[3] = {1.0, 1.0, 1.0};
+  std::size_t ci = 0;
+  for (auto f : mesh.faces()) {
+    if (mesh.degree(f) < min_degree) continue;
+
+    const auto& normal = get(normals, f);
+    const auto& dir = normal.direction();
+    if (! eq(dir, bdir)) continue;
+
+    std::cout << "    # Face: " << f << ", " << normal << "\n";
+    std::cout << "    Switch {\n"
+      "      whichChoice 0\n"
+      "      children Shape {\n"
+      "        appearance Appearance {\n"
+      "          material Material { }\n"
+      "        }\n"
+      "        geometry IndexedLineSet {\n"
+      "          coord Coordinate {\n"
+      "            point [\n";
+
+    // Get a halfedge bounding the face
+    auto h = mesh.halfedge(f);
+
+    // Iterate CCW around the face
+    auto h_start = h;
+    std::size_t cnt = 0;
+    do {
+      auto v = mesh.target(h);
+      const auto& p = mesh.point(v);
+      std::cout << "                   " << p.x() << " " << p.y() << " " << p.z() << std::endl;
+      h = mesh.next(h);
+      ++cnt;
+    } while (h != h_start);
+
+    std::cout << "                  ]\n"
+      "          }\n"
+      "          coordIndex [\n";
+    std::cout << "                      ";
+    for (auto i = 0; i < cnt; ++i) std::cout << i << " ";
+    std::cout << "0 -1\n";
+    std::cout << "                     ]\n"
+      "          colorPerVertex FALSE\n"
+      "          color Color {\n"
+      "            color[\n";
+    std::cout << "                  " << color[0] << " " << color[1] << " " << color[2] << "\n";
+      std::cout << "                 ]\n"
+      "          }\n"
+      "        }\n"
+      "      }\n"
+      "    }\n";
+    ci = (ci + 1) % 3;
+    color[ci] -= 0.33;
+    if (color[ci] < 0.0) color[ci] = 1.0;
+    if ((color[0] < 0.1) && (color[1] < 0.1) && (color[2] < 0.1))
+      color[0] = color[1] = color[2] = 1.0;
+  }
+  std::cout << "   ]\n"
+    "}  \n";
+}
 
 int main(int argc, char* argv[]) {
   using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
@@ -52,7 +122,7 @@ int main(int argc, char* argv[]) {
   using Face_descriptor = boost::graph_traits<Mesh>::face_descriptor;
 
   const char* filename = (argc > 1) ? argv[1] : "cube.off";
-  std::cout << filename << std::endl;
+  // std::cout << filename << std::endl;
   Mesh mesh;
 
   bool has_colors = false;
@@ -65,7 +135,7 @@ int main(int argc, char* argv[]) {
   }
 
   auto face_property_maps = mesh.properties<Face_descriptor>();
-  for (const auto& pm : face_property_maps) std::cout << pm << std::endl;
+  // for (const auto& pm : face_property_maps) std::cout << pm << std::endl;
 #else
   if (! CGAL::IO::read_polygon_mesh(filename, mesh, params::verbose(true).repair_polygon_soup(true).
                                     face_color_map(fcolors))) {
@@ -73,7 +143,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 #endif
-  std::cout << "Loaded mesh with " << num_vertices(mesh) << " vertices, " << num_faces(mesh) << " faces.\n";
+  // std::cout << "Loaded mesh with " << num_vertices(mesh) << " vertices, " << num_faces(mesh) << " faces.\n";
 
   CGAL::Graphics_scene_options<Mesh, Vertex_descriptor, Edge_descriptor, Face_descriptor> gso;
   gso.ignore_all_vertices(true);
@@ -106,7 +176,7 @@ int main(int argc, char* argv[]) {
     has_colors = true;
     fcolors = fcolors_optional.value();
   }
-  else std::cerr << "Warning: could not read colors from '" << filename << "'.\n";
+  // else std::cerr << "Warning: could not read colors from '" << filename << "'.\n";
 #else
   CGAL::IO::Color zero_color(0, 0, 0, 255);
   for (auto fd : CGAL::faces(mesh)) {
@@ -135,23 +205,6 @@ int main(int argc, char* argv[]) {
   PMP::remove_degenerate_faces(mesh);
   PMP::remove_degenerate_edges(mesh);
 
-  // Merge coplanar faces
-  using Vector_3 = typename Kernel::Vector_3;
-  Kernel kernel;
-  auto np = params::geom_traits(kernel);
-  auto normals = mesh.add_property_map<Face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
-
-#if 0
-  PMP::compute_face_normals(mesh, normals, np);
-  merge_coplanar_facets(mesh, normals, np);
-#else
-  Mesh temp;
-  PMP::remesh_planar_patches(mesh, temp);
-  std::swap(mesh, temp);
-#endif
-
-  CGAL::draw(mesh, gso, filename);
-
   // General validity
   auto is_valid = mesh.is_valid();
   if (! is_valid) std::cerr << "The mesh is not valid\n";
@@ -160,14 +213,50 @@ int main(int argc, char* argv[]) {
   auto is_closed = CGAL::is_closed(mesh);
   if (! is_closed) std::cerr << "The mesh is not closed\n";
 
+  // Merge coplanar faces
+  using Vector_3 = typename Kernel::Vector_3;
+  Kernel kernel;
+  auto np = params::geom_traits(kernel);
+  auto normals = mesh.add_property_map<Face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+
+#if 1
+  PMP::compute_face_normals(mesh, normals, np);
+  retriangulate_faces(mesh, normals, np);
+
+  // General validity
+  is_valid = mesh.is_valid(true);
+  if (! is_valid) std::cerr << "The mesh is not valid 2\n";
+
+  // Closed
+  is_closed = CGAL::is_closed(mesh);
+  if (! is_closed) std::cerr << "The mesh is not closed 2\n";
+#else
+  Mesh temp;
+  PMP::remesh_planar_patches(mesh, temp);
+  std::swap(mesh, temp);
+#endif
+
+  // typename Kernel::Direction_3 dir(0, 0, 1);
+  // print_faces_ccw(mesh, normals, dir, 3);
+
+  CGAL::draw(mesh, gso, "Intermediate");
+
   // Triangular mesh
   auto is_tri = CGAL::is_triangle_mesh(mesh);
   if (! is_tri) {
     std::cerr << "The mesh is not triangular; triangulating\n";
     // PMP::triangulate_faces(mesh, params::geom_traits(kernel));
-    PMP::compute_face_normals(mesh, normals, np);
-    triangulate_faces(mesh, normals);
-    CGAL::draw(mesh, gso, filename);
+    // PMP::compute_face_normals(mesh, normals, np);
+    // triangulate_faces(mesh, normals);
+    // CGAL::draw(mesh, gso, "Final");
+
+    // // General validity
+    // auto is_valid = mesh.is_valid();
+    // if (! is_valid) std::cerr << "The mesh is not valid\n";
+
+    // // Closed
+    // auto is_closed = CGAL::is_closed(mesh);
+    // if (! is_closed) std::cerr << "The mesh is not closed\n";
   }
 
   // Does self intersect
@@ -178,7 +267,7 @@ int main(int argc, char* argv[]) {
 #if defined(USE_SURFACE_MESH)
   auto fccmap = mesh.add_property_map<Face_descriptor, std::size_t>("f:CC").first;
   std::size_t num_ccs = PMP::connected_components(mesh, fccmap);
-  std::cout << "Number of connected components: " << num_ccs << "\n";
+  // std::cout << "Number of connected components: " << num_ccs << "\n";
 
   // Does bound a volume
   if (is_closed && is_tri) {

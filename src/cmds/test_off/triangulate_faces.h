@@ -1,9 +1,11 @@
 #ifndef TRIANGULATE_FACES_H
 #define TRIANGULATE_FACES_H
 
-#include <list>
+#include <unordered_set>
 #include <unordered_map>
+#include <stack>
 
+#include <boost/graph/graph_traits.hpp>
 #include <boost/range/value_type.hpp>
 
 #include <CGAL/boost/graph/Euler_operations.h>
@@ -11,148 +13,115 @@
 #include <CGAL/Projection_traits_3.h>
 #include <CGAL/Named_function_parameters.h>
 #include <CGAL/Triangulation_data_structure_2.h>
+#include <CGAL/Union_find.h>
 
-// static std::size_t indent = 0;
+#include "merge_coplanar_faces.h"
 
-/*! Triangulate a face of size at least 5.
- */
-template <typename PolygonMesh, typename NamedParameters>
-void triangulate_quad(typename boost::graph_traits<PolygonMesh>::face_descriptor fd, PolygonMesh& mesh,
-                      const NamedParameters& np) {
-  // std::cout << std::string(indent, ' ') << "triangulate_quad()\n";
-  using VPM = typename CGAL::GetVertexPointMap<PolygonMesh, NamedParameters>::type;
-  VPM vpm = CGAL::parameters::choose_parameter(CGAL::parameters::get_parameter(np, CGAL::internal_np::vertex_point),
-                                               get_property_map(CGAL::vertex_point, mesh));
-  auto h0 = CGAL::halfedge(fd, mesh);
-  auto h1 = CGAL::next(h0, mesh);
-  auto h2 = CGAL::next(h1, mesh);
-  auto h3 = CGAL::next(h2, mesh);
-  const auto& p0 = get(vpm, CGAL::target(h0, mesh));
-  const auto& p1 = get(vpm, CGAL::target(h1, mesh));
-  const auto& p2 = get(vpm, CGAL::target(h2, mesh));
-  const auto& p3 = get(vpm, CGAL::target(h3, mesh));
+namespace PMP = CGAL::Polygon_mesh_processing;
+namespace params = CGAL::parameters;
 
-  /* Chooses the diagonal that will split the quad in two triangles that
-   * maximize the scalar product of of the unnormalized normals of the two
-   * triangles.
-   * The lengths of the unnormalized normals (computed using
-   * cross-products of two vectors) are proportional to the area of the
-   * triangles. Maximize the scalar product of the two normals will avoid
-   * skinny triangles, and will also take into account the cosine of the
-   * angle between the two normals.
-   * In particular, if the two triangles are oriented in different
-   * directions, the scalar product will be negative.
-   */
-  auto p21 = p2 - p1;
-  auto p12 = p1 - p2;
-  auto p32 = p3 - p2;
-  auto p03 = p0 - p3;
-  auto p30 = p3 - p0;
-  auto p10 = p1 - p0;
-  auto p1p3 = CGAL::cross_product(p21, p32) * CGAL::cross_product(p03, p10);
-  auto p0p2 = CGAL::cross_product(p10, p12) * CGAL::cross_product(p32, p30);
-  if (p0p2 > p1p3) CGAL::Euler::split_face(h0, h2, mesh);
-  else CGAL::Euler::split_face(h1, h3, mesh);
-}
-
-template <typename PolygonMesh>
-struct Face_info {
-  typename boost::graph_traits<PolygonMesh>::halfedge_descriptor e[3];
-  int m_nesting_level;
-  bool in_domain() { return m_nesting_level % 2 == 1; }
-  // bool is_external;
-};
-
-/*! Construct a constrained triangulation
- */
-template <typename PolygonMesh, typename Triangulation, typename NamedParameters>
-bool construct_triangulation(typename boost::graph_traits<PolygonMesh>::face_descriptor fd,
-                             PolygonMesh& mesh, Triangulation& tri, const NamedParameters& np) {
-  // std::cout << std::string(indent, ' ') << "construct_triangulation()\n";
-  using Graph_traits = boost::graph_traits<PolygonMesh>;
+template <typename PolygonMesh, typename VPM>
+class Face_triangulator {
+private:
+  using Polygon_mesh = PolygonMesh;
+  using Graph_traits = boost::graph_traits<Polygon_mesh>;
   using vertex_descriptor = typename Graph_traits::vertex_descriptor;
   using halfedge_descriptor = typename Graph_traits::halfedge_descriptor;
-  using VPM = typename CGAL::GetVertexPointMap<PolygonMesh, NamedParameters>::type;
-  using Point = typename boost::property_traits<VPM>::value_type;
-  VPM vpm = CGAL::parameters::choose_parameter(CGAL::parameters::get_parameter(np, CGAL::internal_np::vertex_point),
-                                               get_property_map(CGAL::vertex_point, mesh));
+  using face_descriptor = typename boost::graph_traits<Polygon_mesh>::face_descriptor;
 
-  using Vertex_handle = typename Triangulation::Vertex_handle;
-  std::unordered_map<Vertex_handle, bool> processed;
+  Polygon_mesh& m_mesh;
+  const VPM& m_vpm;
 
-  bool res(true);
-  auto hd = halfedge(fd, mesh);
-  auto range = CGAL::halfedges_around_face(hd, mesh);
-  auto range_begin = range.begin();
-  auto first_hd = *range_begin;
-  auto first_vd = CGAL::target(first_hd, mesh);
+  /*! Construct a constrained triangulation
+   */
+  template <typename Triangulation>
+  void construct_triangulation(face_descriptor fd, Triangulation& tri) {
+    // std::cout << "construct_triangulation(" << fd << ")\n";
 
-  const Point& p = get(vpm, first_vd);
-  auto start = tri.insert(p);
-  processed[start] = true;
+    using Point = typename boost::property_traits<VPM>::value_type;
 
-  // std::cout << std::string(indent, ' ') << p << std::endl;
+    // We need to identify vertices of the triangulation that are mapped to the same point in 2D.
+    // Observe that a triangulation vertex is associated with at least one mesh vertex.
+    // In a degenerate case, a triangulation vertex can be associated with several mesh vertices.
+    // The insertion of a point into the triangulation returns a triangulation vertex handle.
+    // Unfortunately, there is no indication whether the point has already been inserted.
 
-  start->info() = first_hd;
-  auto prev = start;
+    using Vertex_handle = typename Triangulation::Vertex_handle;
+    auto null_vh = Vertex_handle();
 
-  halfedge_descriptor null_hd = boost::graph_traits<PolygonMesh>::null_halfedge();
-  using Range = decltype(range);
-  ++range_begin;
-  auto skip_first_range = Range(range_begin, range.end());
-  for (auto hd : skip_first_range) {
-    auto vd = CGAL::target(hd, mesh);
-
-    const Point& p = get(vpm, vd);
-    auto next = tri.insert(p);
-    auto [it, inserted] = processed.insert({ next, true });
-
-    // std::cout << std::string(indent, ' ') << p << std::endl;
-
-    // next->info() = (next->info() == null_hd) ? hd : null_hd;
-    // if (next->info() == null_hd) { ... }
-    next->info() = hd;
-    if (! inserted) {
-      res = false;
-      next->info() = null_hd;
-      // std::cout << std::string(indent, ' ') << "XXXXX set res to false\n";
+    // Obtain a handle to the descriptor of the first halfedge that is not degenerate
+    auto rep_hd = halfedge(fd, m_mesh);
+    auto range = CGAL::halfedges_around_face(rep_hd, m_mesh);
+    auto it = range.begin();
+    for (; it != range.end(); ++it) {
+      auto hd = *it;
+      auto ohd = CGAL::opposite(hd, m_mesh);
+      auto ofd = CGAL::face(ohd, m_mesh);
+      if (fd != ofd) break;
     }
 
-    tri.insert_constraint(prev, next);
-    prev = next;
+    // Insert the first point into the triangulation
+    auto hd = *it;
+    auto prev_vd = CGAL::source(hd, m_mesh);
+    const Point& prev_p = get(m_vpm, prev_vd);
+    auto prev_vh = tri.insert(prev_p);
+
+    while (it != range.end()) {
+      // Insert the second point into the triangulation
+      auto vd = CGAL::target(hd, m_mesh);
+      const Point& p = get(m_vpm, vd);
+      auto next_vh = tri.insert(p);
+      next_vh->info().insert(hd);
+
+      // Insert the constraints
+      // std::cout << prev_vh->point() << ", " << next_vh->point() << std::endl;
+      tri.insert_constraint(prev_vh, next_vh);
+      prev_vh = next_vh;
+
+      // Advance
+      bool degenerate = false;
+      for (++it; it != range.end(); ++it) {
+        hd = *it;
+        auto ohd = CGAL::opposite(hd, m_mesh);
+        auto ofd = CGAL::face(ohd, m_mesh);
+        if (fd != ofd) break;
+        degenerate = true;
+      }
+      if (! degenerate) continue;
+
+      auto prev_vd = CGAL::source(hd, m_mesh);
+      const Point& prev_p = get(m_vpm, prev_vd);
+      prev_vh = tri.insert(prev_p);
+    }
+    // std::cout << "End construct_triangulation(" << fd << ")\n";
   }
-  tri.insert_constraint(prev, start);
 
-  processed.clear();
-  return res;
-}
-
-/*! Mark facets in a triangulation that are inside the domain bounded by
- * the polygon.
- * \param tri (in/out) the triangulation.
- */
-template <typename Triangulation>
-void mark_domains(Triangulation& tri, typename Triangulation::Face_handle start, int index,
-                  std::list<typename Triangulation::Edge>& border) {
-  if (start->info().m_nesting_level != -1) return;
-  std::list<typename Triangulation::Face_handle> queue;
-  queue.push_back(start);
-  while (! queue.empty()) {
-    auto fh = queue.front();
-    queue.pop_front();
-    if (fh->info().m_nesting_level == -1) {
-      fh->info().m_nesting_level = index;
-      for (auto i = 0; i < 3; ++i) {
-        typename Triangulation::Edge e(fh,i);
-        auto n = fh->neighbor(i);
-        if (n->info().m_nesting_level == -1) {
-          if (tri.is_constrained(e)) border.push_back(e);
-          else queue.push_back(n);
+  /*! Mark facets in a triangulation that are inside the domain bounded by
+   * the polygon.
+   * \param tri (in/out) the triangulation.
+   */
+  template <typename Triangulation>
+  void mark_domains(Triangulation& tri, typename Triangulation::Face_handle start, int index,
+                    std::list<typename Triangulation::Edge>& border) {
+    if (start->info().m_nesting_level != -1) return;
+    std::list<typename Triangulation::Face_handle> queue;
+    queue.push_back(start);
+    while (! queue.empty()) {
+      auto fh = queue.front();
+      queue.pop_front();
+      if (fh->info().m_nesting_level == -1) {
+        fh->info().m_nesting_level = index;
+        for (auto i = 0; i < 3; ++i) {
+          typename Triangulation::Edge e(fh,i);
+          auto n = fh->neighbor(i);
+          if (n->info().m_nesting_level == -1) {
+            if (tri.is_constrained(e)) border.push_back(e);
+            else queue.push_back(n);
+          }
         }
       }
     }
   }
-}
 
   /*! \brief marks facets in a triangulation that are inside the domain.
    * Explores set of facets connected with non constrained edges,
@@ -163,199 +132,340 @@ void mark_domains(Triangulation& tri, typename Triangulation::Face_handle start,
    * level by 1.
    * Facets in the domain are those with an odd nesting level.
    */
-template <typename Triangulation>
-void mark_domains(Triangulation& tri) {
-  for (auto it = tri.all_faces_begin(); it != tri.all_faces_end(); ++it)
-    it->info().m_nesting_level = -1;
+  template <typename Triangulation>
+  void mark_domains(Triangulation& tri) {
+    for (auto it = tri.all_faces_begin(); it != tri.all_faces_end(); ++it)
+      it->info().m_nesting_level = -1;
 
-  std::list<typename Triangulation::Edge> border;
-  mark_domains(tri, tri.infinite_face(), 0, border);
-  while (! border.empty()) {
-    auto e = border.front();
-    border.pop_front();
-    auto n = e.first->neighbor(e.second);
-    if (n->info().m_nesting_level == -1)
-      mark_domains(tri, n, e.first->info().m_nesting_level+1, border);
+    std::list<typename Triangulation::Edge> border;
+    mark_domains(tri, tri.infinite_face(), 0, border);
+    while (! border.empty()) {
+      auto e = border.front();
+      border.pop_front();
+      auto n = e.first->neighbor(e.second);
+      if (n->info().m_nesting_level == -1)
+        mark_domains(tri, n, e.first->info().m_nesting_level+1, border);
+    }
   }
-}
 
-/*! Mark the halfedges on the boundary of a facet as border halfedges.
- */
-template <typename PolygonMesh>
-void make_hole(typename boost::graph_traits<PolygonMesh>::halfedge_descriptor first_hd, PolygonMesh& mesh) {
-  //we are not using Euler::make_hole because it has a precondition
-  //that the hole is not made on the boundary of the mesh
-  //here we allow making a hole on the boundary, and the pair(s) of
-  //halfedges that become border-border are fixed by the connectivity
-  //setting made in operator()
-  CGAL_assertion(! CGAL::is_border(first_hd, mesh));
-  auto fd = CGAL::face(first_hd, mesh);
-  for (auto hd : CGAL::halfedges_around_face(first_hd, mesh))
-    CGAL::internal::set_border(hd, mesh);
-  remove_face(fd, mesh);
-}
+  /*! Mark the halfedges on the boundary of a facet as border halfedges.
+   */
+  void make_hole(halfedge_descriptor first_hd) {
+    //we are not using Euler::make_hole because it has a precondition
+    //that the hole is not made on the boundary of the mesh
+    //here we allow making a hole on the boundary, and the pair(s) of
+    //halfedges that become border-border are fixed by the connectivity
+    //setting made in operator()
+    CGAL_assertion(! CGAL::is_border(first_hd, m_mesh));
+    auto fd = CGAL::face(first_hd, m_mesh);
+    for (auto hd : CGAL::halfedges_around_face(first_hd, m_mesh))
+      CGAL::internal::set_border(hd, m_mesh);
+    remove_face(fd, m_mesh);
+  }
 
-//!
-template <typename FaceHandle>
-bool is_external(FaceHandle fh) { return ! fh->info().in_domain(); }
+  struct Face_info {
+    halfedge_descriptor e[3];
+    int m_nesting_level;
+    bool in_domain() { return m_nesting_level % 2 == 1; }
+    // bool is_external;
+  };
 
-/*! Triangulate a face of size at least 5.
- */
-template <typename PolygonMesh, typename Vector_3, typename NamedParameters>
-bool triangulate_face(typename boost::graph_traits<PolygonMesh>::face_descriptor fd, PolygonMesh& mesh,
-                      const Vector_3 normal, const NamedParameters& np) {
-  // std::cout << std::string(indent, ' ') << "triangulate_face(" << normal << ")\n";
-  using Graph_traits = boost::graph_traits<PolygonMesh>;
-  using vertex_descriptor = typename Graph_traits::vertex_descriptor;
-  using halfedge_descriptor = typename Graph_traits::halfedge_descriptor;
-  using face_descriptor = typename Graph_traits::face_descriptor;
-  using VPM = typename CGAL::GetVertexPointMap<PolygonMesh, NamedParameters>::type;
-  using Point = typename boost::property_traits<VPM>::value_type;
-  using Kernel = typename CGAL::Kernel_traits<Point>::Kernel;
-  using Traits = CGAL::Projection_traits_3<Kernel>;
-  using Vi = typename Graph_traits::halfedge_descriptor;
-  using Vb = CGAL::Triangulation_vertex_base_with_info_2<Vi, Traits>;
-  using Fi = Face_info<PolygonMesh>;
-  using Fbi = CGAL::Triangulation_face_base_with_info_2<Fi, Traits>;
-  using Fb = CGAL::Constrained_triangulation_face_base_2<Traits, Fbi>;
-  using Tds = CGAL::Triangulation_data_structure_2<Vb, Fb>;
-  // typedef CGAL::No_intersection_tag                             Itag;
-  using Itag = CGAL::Exact_predicates_tag;
-  using CDT = CGAL::Constrained_Delaunay_triangulation_2<Traits, Tds, Itag>;
-  Traits cdt_traits(normal);
-  CDT cdt(cdt_traits);
-  auto gp = construct_triangulation(fd, mesh, cdt, np);
-  mark_domains(cdt);
+  //!
+  template <typename FaceHandle>
+  bool is_external(FaceHandle fh) { return ! fh->info().in_domain(); }
 
-  // If the facet is not in general position, simply split along one of the
-  // edges induced by the triangulation, and recursively triangulate the two
-  // resulting facets.
-  if (! gp) {
-    // std::cout << std::string(indent, ' ') << "triangulate_face() degenerate\n";
-    halfedge_descriptor null_hd = boost::graph_traits<PolygonMesh>::null_halfedge();
-    halfedge_descriptor hd = null_hd;
-    std::size_t i = 0;
-    std::size_t j = 0;
-    for (auto eit = cdt.finite_edges_begin(); eit != cdt.finite_edges_end(); ++eit) {
-      ++i;
-      if (cdt.is_constrained(*eit)) continue;
+public:
+  Face_triangulator(Polygon_mesh& mesh, const VPM& vpm) :
+    m_mesh(mesh),
+    m_vpm(vpm)
+  {}
 
+  //
+  void my_remove_face(halfedge_descriptor h) {
+    // std::cout << "my_remove_face()\n";
+    CGAL_precondition(CGAL::is_valid_halfedge_descriptor(h, m_mesh));
+    CGAL_precondition(! CGAL::is_border(h, m_mesh));
+
+    auto f = CGAL::face(h, m_mesh);
+
+    // Advance around the face until a non-border opposite halfedge is encountered.
+    halfedge_descriptor end = h;
+    do {
+      halfedge_descriptor nh = CGAL::next(h, m_mesh);
+      halfedge_descriptor oh = CGAL::opposite(h, m_mesh);
+      face_descriptor of = CGAL::face(oh, m_mesh);
+      if (! CGAL::is_border(oh, m_mesh) && (f != of)) break;
+      h = nh;
+    } while (h != end);
+
+    // If a non-border opposite halfedge is not encountered, remove everything.
+    if ((h == end) && CGAL::is_border(CGAL::opposite(h, m_mesh), m_mesh)) {
+      do {
+        halfedge_descriptor nh = CGAL::next(h, m_mesh);
+        CGAL::remove_vertex(CGAL::target(h, m_mesh), m_mesh);
+        CGAL::remove_edge(CGAL::edge(h, m_mesh), m_mesh);
+        h = nh;
+      } while (h != end);
+      CGAL::remove_face(f, m_mesh);
+      return;
+    }
+
+    // Make sure that h is not a border halfedge!
+    CGAL_precondition(! CGAL::is_border(CGAL::opposite(h, m_mesh), m_mesh) &&
+                      (f != CGAL::face(CGAL::opposite(h, m_mesh), m_mesh)));
+    end = h;
+    do {
+      halfedge_descriptor nh = CGAL::next(h, m_mesh);
+      halfedge_descriptor oh = CGAL::opposite(h, m_mesh);
+      bool h_border = CGAL::is_border(oh, m_mesh);
+
+      CGAL::internal::set_border(h, m_mesh);
+      // CGAL::set_face(h, boost::graph_traits<PolygonMesh>::null_face(), m_mesh);
+
+      if (! h_border) {
+        h = nh;
+        continue;
+      }
+
+      // Remove the edge
+      // Handle the source vertex
+      halfedge_descriptor ph = CGAL::prev(h, m_mesh);
+      if (ph != oh) {
+        set_halfedge(target(oh, m_mesh), ph, m_mesh);
+        set_next(ph, CGAL::next(oh, m_mesh), m_mesh);
+      }
+      else {
+        CGAL::remove_vertex(CGAL::target(oh, m_mesh), m_mesh);
+      }
+
+      // Handle the target vertex
+      if (nh != oh) {
+        halfedge_descriptor onh = CGAL::opposite(nh, m_mesh);
+        set_halfedge(target(h, m_mesh), onh, m_mesh);
+        halfedge_descriptor poh = CGAL::prev(oh, m_mesh);
+        set_next(poh, nh, m_mesh);
+        h = nh;
+      }
+      else {
+        CGAL::remove_vertex(CGAL::target(h, m_mesh), m_mesh);
+        h = CGAL::next(nh, m_mesh);
+      }
+
+      CGAL::remove_edge(CGAL::edge(oh, m_mesh), m_mesh);
+    } while (h != end);
+
+    CGAL::remove_face(f, m_mesh);
+    // std::cout << "end my_remove_face()\n";
+  }
+
+  /*! Triangulate a face of size at least 5.
+   */
+  void triangulate_quad(face_descriptor fd) {
+    auto h0 = CGAL::halfedge(fd, m_mesh);
+    auto h1 = CGAL::next(h0, m_mesh);
+    auto h2 = CGAL::next(h1, m_mesh);
+    auto h3 = CGAL::next(h2, m_mesh);
+    const auto& p0 = get(m_vpm, CGAL::target(h0, m_mesh));
+    const auto& p1 = get(m_vpm, CGAL::target(h1, m_mesh));
+    const auto& p2 = get(m_vpm, CGAL::target(h2, m_mesh));
+    const auto& p3 = get(m_vpm, CGAL::target(h3, m_mesh));
+
+    /* Choose the diagonal that will split the quad in two triangles that
+     * maximize the scalar product of of the unnormalized normals of the two
+     * triangles.
+     * The lengths of the unnormalized normals (computed using
+     * cross-products of two vectors) are proportional to the area of the
+     * triangles. Maximize the scalar product of the two normals will avoid
+     * skinny triangles, and will also take into account the cosine of the
+     * angle between the two normals.
+     * In particular, if the two triangles are oriented in different
+     * directions, the scalar product will be negative.
+     */
+    auto p21 = p2 - p1;
+    auto p12 = p1 - p2;
+    auto p32 = p3 - p2;
+    auto p03 = p0 - p3;
+    auto p30 = p3 - p0;
+    auto p10 = p1 - p0;
+    auto p1p3 = CGAL::cross_product(p21, p32) * CGAL::cross_product(p03, p10);
+    auto p0p2 = CGAL::cross_product(p10, p12) * CGAL::cross_product(p32, p30);
+
+    if (p0p2 > p1p3) CGAL::Euler::split_face(h0, h2, m_mesh);
+    else CGAL::Euler::split_face(h1, h3, m_mesh);
+  }
+
+  /*! Triangulate a face of size at least 5.
+   */
+  template <typename Vector_3>
+  bool triangulate_face(face_descriptor fd, const Vector_3 normal) {
+    // std::cout << "triangulate_face(" << fd << ", " << normal << ")\n";
+
+    using Point = typename boost::property_traits<VPM>::value_type;
+    using Kernel = typename CGAL::Kernel_traits<Point>::Kernel;
+    using Traits = CGAL::Projection_traits_3<Kernel>;
+    using Vi = std::unordered_set<halfedge_descriptor>;
+    using Vb = CGAL::Triangulation_vertex_base_with_info_2<Vi, Traits>;
+    using Fi = Face_info;
+    using Fbi = CGAL::Triangulation_face_base_with_info_2<Fi, Traits>;
+    using Fb = CGAL::Constrained_triangulation_face_base_2<Traits, Fbi>;
+    using Tds = CGAL::Triangulation_data_structure_2<Vb, Fb>;
+    // using Itag = CGAL::No_intersection_tag;
+    using Itag = CGAL::Exact_predicates_tag;
+    using CDT = CGAL::Constrained_Delaunay_triangulation_2<Traits, Tds, Itag>;
+    Traits cdt_traits(normal);
+    CDT cdt(cdt_traits);
+    construct_triangulation(fd, cdt);
+
+    mark_domains(cdt);
+
+    auto hd = CGAL::halfedge(fd, m_mesh);
+    halfedge_descriptor null_hd;
+
+    // for (auto vit = cdt.vertices_begin(); vit != cdt.vertices_end(); ++vit) {
+    //   const auto& hds = vit->info();
+    //   std::cout << vit->point() << ", " << hds.size() << std::endl;
+    // }
+
+    // std::cout << m_mesh.number_of_vertices() << "," << m_mesh.number_of_halfedges() << ","
+    //           << m_mesh.number_of_faces() << std::endl;
+
+    // Remove the face along with the internal edges and vertices.
+    // CGAL::Euler::remove_face(hd, m_mesh);
+    my_remove_face(hd);
+
+    // std::cout << m_mesh.number_of_vertices() << "," << m_mesh.number_of_halfedges() << ","
+    //           << m_mesh.number_of_faces() << std::endl;
+
+    for (auto eit = cdt.finite_edges_begin(), end = cdt.finite_edges_end(); eit != end; ++eit) {
       auto fh = eit->first;
       auto index = eit->second;
-      auto fh_opp = fh->neighbor(index);
-      if (is_external(fh) || is_external(fh_opp)) continue;
-      ++j;
+      auto opposite_fh = fh->neighbor(index);
+      auto opposite_index = opposite_fh->index(fh);
 
       const auto vh_a = fh->vertex(cdt.cw(index));
       const auto vh_b = fh->vertex(cdt.ccw(index));
-      if ((vh_a->info() == null_hd) || (vh_b->info() == null_hd)) continue;
 
-      hd = CGAL::Euler::split_face(vh_a->info(), vh_b->info(), mesh);
-      // std::cout << std::string(indent, ' ') << "XXXX 1 triangulate_face(" << normal << ")\n";
-      break;
+      // none of fh and fh_opposite are external and edge is not constrained
+      if (! is_external(fh) && ! is_external(opposite_fh) && ! cdt.is_constrained(*eit)) {
+        // strictly internal edge
+        const auto& hd_as = vh_a->info();
+        const auto& hd_bs = vh_b->info();
+        // std::cout << "Internal: " << hd_as.size() << ", " << hd_bs.size() << std::endl;
+
+        // const auto& pa = vh_a->point();
+        // const auto& pb = vh_b->point();
+        // std::cout << pa << " " << pb << std::endl;
+
+        const auto& hdas = vh_a->info();
+        auto ita = hdas.begin();
+        auto hd_a = *ita;
+        // auto next_hd_a = CGAL::next(hd_a, m_mesh);
+        // auto p_vd = CGAL::source(hd_a, m_mesh);
+        // const Point& p = get(m_vpm, p_vd);
+        // auto q_vd = CGAL::target(next_hd_a, m_mesh);
+        // const Point& q = get(m_vpm, q_vd);
+        // std::cout << "p: " << p << std::endl;
+        // std::cout << "q: " << q << std::endl;
+        for (++ita; ita != hdas.end(); ++ita) {
+          if (true) {
+            std::cout << "XXXXXXXX 1\n";
+            break;
+          }
+        }
+
+        const auto& hdbs = vh_b->info();
+        auto itb = hdbs.begin();
+        auto hd_b = *itb;
+        // auto next_hd_b = CGAL::next(hd_b, m_mesh);
+        for (++itb; itb != hdbs.end(); ++itb) {
+          if (true) {
+            std::cout << "XXXXXXXX 2\n";
+            break;
+          }
+        }
+
+        auto hd_new = CGAL::halfedge(add_edge(m_mesh), m_mesh);
+        auto hd_opp_new = CGAL::opposite(hd_new, m_mesh);
+        fh->info().e[index] = hd_new;
+        opposite_fh->info().e[opposite_index] = hd_opp_new;
+        CGAL::set_target(hd_new, CGAL::target(hd_a, m_mesh), m_mesh);
+        CGAL::set_target(hd_opp_new, CGAL::target(hd_b, m_mesh), m_mesh);
+      }
+
+      if (cdt.is_constrained(*eit)) {
+        // edge is constrained
+        const auto& hd_as = vh_a->info();
+        const auto& hd_bs = vh_b->info();
+        // std::cout << "Constrained: " << hd_as.size() << ", " << hd_bs.size() << std::endl;
+        // std::cout << "Edge: " << vh_a->point() << "," << vh_b->point() << std::endl;
+        if (! is_external(fh)) {
+          const auto& hds = vh_a->info();
+          auto it = hds.begin();
+          auto hd_a = *it;
+          for (++it; it != hds.end(); ++it) {
+            auto src_vd = CGAL::source(*it, m_mesh);
+            const Point& src = get(m_vpm, src_vd);
+            if (src == vh_b->point()) {
+              hd_a = *it;
+              break;
+            }
+          }
+          fh->info().e[index] = hd_a;
+        }
+
+        //
+        if (! is_external(opposite_fh)) {
+          const auto& hds = vh_b->info();
+          auto it = hds.begin();
+          auto hd_b = *it;
+          for (++it; it != hds.end(); ++it) {
+            auto src_vd = CGAL::source(*it, m_mesh);
+            const Point& src = get(m_vpm, src_vd);
+            if (src == vh_a->point()) {
+              hd_b = *it;
+              break;
+            }
+          }
+          opposite_fh->info().e[opposite_index] = hd_b;
+        }
+      }
     }
-    if (hd == boost::graph_traits<PolygonMesh>::null_halfedge()) {
-      std::cerr << "Couldn't find a diagonal!\n";
-      return false;
+
+    for (auto fit = cdt.finite_faces_begin(), end = cdt.finite_faces_end(); fit != end; ++fit) {
+      if (is_external(fit)) continue;
+
+      // if (cnt == 1) break;
+
+      halfedge_descriptor hd0 = fit->info().e[0];
+      halfedge_descriptor hd1 = fit->info().e[1];
+      halfedge_descriptor hd2 = fit->info().e[2];
+
+      if ((hd0 == null_hd) || (hd1 == null_hd) || (hd2 == null_hd)) {
+        exit(1);
+        continue;
+      }
+      CGAL_assertion(hd0 != null_hd);
+      CGAL_assertion(hd1 != null_hd);
+      CGAL_assertion(hd2 != null_hd);
+
+      CGAL::set_next(hd0, hd1, m_mesh);
+      CGAL::set_next(hd1, hd2, m_mesh);
+      CGAL::set_next(hd2, hd0, m_mesh);
+
+      CGAL::Euler::fill_hole(hd0, m_mesh);
     }
+
     cdt.clear();
-
-    auto hd_opp = CGAL::opposite(hd, mesh);
-    auto fd1 = CGAL::face(hd, mesh);
-    auto fd2 = CGAL::face(hd_opp, mesh);
-
-    auto size = CGAL::halfedges_around_face(hd, mesh).size();
-    auto size_opp = CGAL::halfedges_around_face(hd_opp, mesh).size();
-
-    bool rc1, rc2;
-    if (size == 4) triangulate_quad(fd1, mesh, np);
-    else if (size > 4) {
-      // indent += 2;
-      // std::cout << std::string(indent, ' ') << "XXXX 2 normal: " << normal << std::endl;
-      rc1 = triangulate_face(fd1, mesh, normal, np);
-      // std::cout << std::string(indent, ' ') << "XXXX 3 normal: " << normal << std::endl;
-      // indent -= 2;
-    }
-
-    if (size_opp == 4) triangulate_quad(fd2, mesh, np);
-    else if (size_opp > 4) {
-      // indent += 2;
-      rc2 = triangulate_face(fd2, mesh, normal, np);
-      // indent -= 2;
-    }
-
-    // std::cout << std::string(indent, ' ') << "triangulate_face() degenerate 2 end\n";
-    return rc1 || rc2;
+    // std::cout << "End triangulate_face(" << fd << ")\n";
+    return true;
   }
-
-  // std::cout << std::string(indent, ' ') << "triangulate_face() non-degenerate\n";
-  auto hd = CGAL::halfedge(fd, mesh);
-  make_hole(hd, mesh);
-
-  halfedge_descriptor null_hd;
-  for (auto eit = cdt.finite_edges_begin(), end = cdt.finite_edges_end(); eit != end; ++eit) {
-    auto fh = eit->first;
-    auto index = eit->second;
-    auto opposite_fh = fh->neighbor(index);
-    auto opposite_index = opposite_fh->index(fh);
-
-    const auto vh_a = fh->vertex(cdt.cw(index));
-    const auto vh_b = fh->vertex(cdt.ccw(index));
-    if ((vh_a->info() == null_hd) || (vh_b->info() == null_hd)) continue;
-
-    //not both fh are external and edge is not constrained
-    if ( ! (is_external(fh) && is_external(opposite_fh)) && ! cdt.is_constrained(*eit)) {
-      // strictly internal edge
-      auto hd_new = CGAL::halfedge(add_edge(mesh), mesh);
-      auto hd_opp_new = CGAL::opposite(hd_new, mesh);
-      fh->info().e[index] = hd_new;
-      opposite_fh->info().e[opposite_index] = hd_opp_new;
-      auto hd_a = vh_a->info();
-      CGAL::set_target(hd_new, CGAL::target(hd_a, mesh), mesh);
-      auto hd_b = vh_b->info();
-      CGAL::set_target(hd_opp_new, CGAL::target(hd_b, mesh), mesh);
-    }
-
-    if (cdt.is_constrained(*eit)) {
-      //edge is constrained
-      if (! is_external(fh)) fh->info().e[index] = vh_a->info();
-      if (! is_external(opposite_fh))
-        opposite_fh->info().e[opposite_index] = vh_b->info();
-    }
-  }
-
-  for (auto fit = cdt.finite_faces_begin(), end = cdt.finite_faces_end(); fit != end; ++fit) {
-    if (is_external(fit)) continue;
-
-    halfedge_descriptor hd0 = fit->info().e[0];
-    halfedge_descriptor hd1 = fit->info().e[1];
-    halfedge_descriptor hd2 = fit->info().e[2];
-    if ((hd0 == null_hd) || (hd1 == null_hd) || (hd2 == null_hd)) {
-      std::cerr << "Ignoring a self-intersecting facet\n";
-      continue;
-    }
-    CGAL_assertion(hd0 != null_hd);
-    CGAL_assertion(hd1 != null_hd);
-    CGAL_assertion(hd2 != null_hd);
-
-    CGAL::set_next(hd0, hd1, mesh);
-    CGAL::set_next(hd1, hd2, mesh);
-    CGAL::set_next(hd2, hd0, mesh);
-
-    // std::cout << std::string(indent, ' ') << "XXXX before triangulate_face(" << normal << ")\n";
-    CGAL::Euler::fill_hole(hd0, mesh);
-    // std::cout << std::string(indent, ' ') << "XXXX after triangulate_face(" << normal << ")\n";
-  }
-  cdt.clear();
-  // std::cout << std::string(indent, ' ') << "triangulate_face() non-degenerate end\n";
-  return true;
-}
+};
 
 /*! Triangulate a mesh
  */
 template <typename PolygonMesh, typename Map, typename NamedParameters = CGAL::parameters::Default_named_parameters>
-bool triangulate_faces(PolygonMesh& mesh, const Map& normals,
-                       const NamedParameters& np = CGAL::parameters::default_values()) {
+bool triangulate_faces(PolygonMesh& mesh, const Map& normals, const NamedParameters& np = params::default_values()) {
+  // std::cout << "triangulate_faces(()\n";
   // There is a bug in CGAL related to the triangulation of the facets of
   // a face graph. Thus, we use a workaround.
   using Graph_traits = boost::graph_traits<PolygonMesh>;
@@ -374,17 +484,23 @@ bool triangulate_faces(PolygonMesh& mesh, const Map& normals,
     if (size > 3) facets.push_back(fd);
   }
 
+  using VPM = typename CGAL::GetVertexPointMap<PolygonMesh, NamedParameters>::type;
+  VPM vpm = CGAL::parameters::choose_parameter(CGAL::parameters::get_parameter(np, CGAL::internal_np::vertex_point),
+                                               get_property_map(CGAL::vertex_point, mesh));
+  Face_triangulator triangulator(mesh, vpm);
+
   // Iterates on the vector of face descriptors
   auto res = true;
   for (auto fd : facets) {
     auto hd = halfedge(fd, mesh);
     auto size = CGAL::halfedges_around_face(hd, mesh).size();
     if (size == 4) {
-      triangulate_quad(fd, mesh, np);
+      triangulator.triangulate_quad(fd);
       continue;
     }
-    if (! triangulate_face(fd, mesh, get(normals, fd), np)) res = false;
+    if (! triangulator.triangulate_face(fd, get(normals, fd))) res = false;
   }
+  // std::cout << "End triangulate_faces(()\n";
   return res;
 }
 

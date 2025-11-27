@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <chrono>
 
 #include <boost/program_options.hpp>
 #include <boost/container/small_vector.hpp>
@@ -29,8 +30,7 @@
 
 #include "CGAL/boolean_operations_3.h"
 
-#include "merge_coplanar_facets.h"
-#include "triangulate_faces.h"
+#include "retriangulate_faces.h"
 
 #ifdef CGAL_LINKED_WITH_TBB
 using Concurrency_tag = CGAL::Parallel_tag;
@@ -89,6 +89,21 @@ inline InputStream& operator>>(InputStream& is, Op& op) {
   return is;
 }
 
+}
+
+void reduce_coordinate_precision(Mesh& mesh, double precision) {
+  // precision = e.g., 1e-5 means keep 5 digits after decimal point
+  const double scale = 1.0 / precision;
+
+  for (auto v : mesh.vertices()) {
+    Kernel::Point_3 p = mesh.point(v);
+
+    double x = std::round(CGAL::to_double(p.x()) * scale) / scale;
+    double y = std::round(CGAL::to_double(p.y()) * scale) / scale;
+    double z = std::round(CGAL::to_double(p.z()) * scale) / scale;
+
+    mesh.point(v) = Kernel::Point_3(x, y, z);
+  }
 }
 
 //! Main entry
@@ -163,6 +178,10 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  double precision = 1e-5; // keep about 5 decimal digits
+  reduce_coordinate_precision(mesh1, precision);
+  reduce_coordinate_precision(mesh2, precision);
+
   CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
   gso.ignore_all_vertices(true);
   gso.ignore_all_edges(true);
@@ -184,6 +203,8 @@ int main(int argc, char* argv[]) {
   PMP::Corefinement::Non_manifold_output_visitor<Mesh> visitor(mesh1, mesh2);
   Mesh result;
   bool valid_result;
+
+  auto start = std::chrono::high_resolution_clock::now();
 
 #if 1
   try {
@@ -346,20 +367,22 @@ int main(int argc, char* argv[]) {
   PMP::stitch_borders(result, params::apply_per_connected_component(true));
 #endif
 
+  auto diff = std::chrono::high_resolution_clock::now() - start;
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(diff);
+  std::cout << "Operation " << op << " took " << duration.count() << " microseconds).\n";
+
   auto is_closed = CGAL::is_closed(result);
   if (! is_closed) std::cerr << "The mesh is not closed\n";
 
   CGAL::draw(result, gso, "raw");
 
-#if 0
+#if 1
   Kernel kernel;
   auto np = CGAL::parameters::geom_traits(kernel);
   using Vector_3 = typename Kernel::Vector_3;
   auto normals = result.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
   PMP::compute_face_normals(result, normals, np);
-  merge_coplanar_facets(result, normals, np);
-  CGAL::draw(result, gso, "merged");
-  triangulate_faces(result, normals);
+  retriangulate_faces(result, normals);
 #else
   Mesh temp;
   PMP::remesh_planar_patches(result, temp);
