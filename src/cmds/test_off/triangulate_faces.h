@@ -88,6 +88,7 @@ private:
         degenerate = true;
       }
       if (! degenerate) continue;
+      if (it == range.end()) break;
 
       auto prev_vd = CGAL::source(hd, m_mesh);
       const Point& prev_p = get(m_vpm, prev_vd);
