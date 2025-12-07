@@ -104,7 +104,7 @@ struct isomorphism_callback {
   bool operator()(CorrespondenceMap1To2, CorrespondenceMap2To1) { return true; }
 };
 
-bool compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel) {
+bool compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel, std::size_t index) {
   // 2. Compare number of features.
   auto num_vertices1 = mesh1.number_of_vertices();
   auto num_edges1 = mesh1.number_of_edges();
@@ -115,39 +115,39 @@ bool compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel) {
   auto num_faces2 = mesh2.number_of_faces();
 
   if (num_vertices1 != num_vertices2) {
-    std::cout << "Meshes differ in number of vertices " << num_vertices1 << ", " << num_vertices2 << "\n";
+    std::cout << "Meshes (" << index << ") differ in number of vertices " << num_vertices1 << ", " << num_vertices2 << "\n";
     return false;
   }
-  std::cout << "# of vertices: " << num_vertices1 << "\n";
+  // std::cout << "# of vertices: " << num_vertices1 << "\n";
 
   if (num_edges1 != num_edges2) {
-    std::cout << "Meshes differ in number of edges " << num_edges1 << ", " << num_edges2 << "\n";
+    std::cout << "Meshes (" << index << ") differ in number of edges " << num_edges1 << ", " << num_edges2 << "\n";
     return false;
   }
-  std::cout << "# of edges: " << num_edges1 << "\n";
+  // std::cout << "# of edges: " << num_edges1 << "\n";
 
   if (num_faces1 != num_faces2) {
-    std::cout << "Meshes differ in number of faces " << num_faces1 << ", " << num_faces2 << "\n";
+    std::cout << "Meshes (" << index << ") differ in number of faces " << num_faces1 << ", " << num_faces2 << "\n";
     return false;
   }
-  std::cout << "# of faces: " << num_faces1 << "\n";
+  // std::cout << "# of faces: " << num_faces1 << "\n";
 
   // 2. Compare volume and surface area
   auto volume1 = PMP::volume(mesh1);
   auto volume2 = PMP::volume(mesh2);
   if (volume1 != volume2) {
-    std::cout << "Meshes differ in volume " << volume1 << ", " << volume2 << "\n";
+    std::cout << "Meshes (" << index << ") differ in volume " << volume1 << ", " << volume2 << "\n";
     return false;
   }
-  std::cout << "Volume: " << volume1 << "\n";
+  // std::cout << "Volume: " << volume1 << "\n";
 
   auto area1 = PMP::area(mesh1);
   auto area2 = PMP::area(mesh2);
   if (area1 != area2) {
-    std::cout << "Meshes differ in boundary area " << area1 << ", " << area2 << "\n";
+    std::cout << "Meshes (" << index << ") differ in boundary area " << std::fixed << area1 << ", " << area2 << "\n";
     return false;
   }
-  std::cout << "Boundary area: " << area1 << "\n";
+  // std::cout << "Boundary area: " << area1 << "\n";
 
   // 3. Compare characteristics (i.e., self-intersection, convexity)
 
@@ -157,7 +157,7 @@ bool compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel) {
     std::cout << "Meshes differ in self intersection " << self_intersect1 << ", " << self_intersect2 << "\n";
     return false;
   }
-  std::cout << "Self intersect: " << self_intersect1 << "\n";
+  // std::cout << "Self intersect: " << self_intersect1 << "\n";
 
   auto is_convex1 = CGAL::is_strongly_convex_3(mesh1, kernel);
   auto is_convex2 = CGAL::is_strongly_convex_3(mesh2, kernel);
@@ -165,7 +165,7 @@ bool compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel) {
     std::cout << "Meshes differ in convexity " << is_convex1 << ", " << is_convex2 << "\n";
     return false;
   }
-  std::cout << "Is convex: " << is_convex1 << "\n";
+  // std::cout << "Is convex: " << is_convex1 << "\n";
 
   /* Compare the widths (obb sizes)
    */
@@ -292,7 +292,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Meshes differ in # of components " << num_ccs1 << ", " << num_ccs2 << "\n";
     return 0;
   }
-  std::cout << "# of components: " << num_ccs1 << "\n";
+  // std::cout << "# of components: " << num_ccs1 << "\n";
 
   // Split connected components
   std::vector<Mesh> meshes1;
@@ -358,7 +358,11 @@ int main(int argc, char* argv[]) {
     }
     const auto& mesh1 = meshes1[i];
     const auto& mesh2 = meshes2[i];
-    auto diff = compare(mesh1, mesh2, kernel);
+    auto diff = compare(mesh1, mesh2, kernel, i);
+    if (! diff) {
+      // std::cout << "Sub meshes " << indices1[i] << " and " << indices2[i] << " differ\n";
+      return 1;
+    }
   }
 
   /* Use Side_of_triangle_mesh.
@@ -367,6 +371,6 @@ int main(int argc, char* argv[]) {
    * bounded_error_Hausdorff_distance()
    */
 
-  std::cout << "The meshes are isomorphic\n";
+  // std::cout << "The meshes are isomorphic\n";
   return 0;
 }
