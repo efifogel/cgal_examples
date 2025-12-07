@@ -141,12 +141,14 @@ bool compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel, std::si
   }
   // std::cout << "Volume: " << volume1 << "\n";
 
-  auto area1 = PMP::area(mesh1);
-  auto area2 = PMP::area(mesh2);
-  if (area1 != area2) {
-    std::cout << "Meshes (" << index << ") differ in boundary area " << std::fixed << area1 << ", " << area2 << "\n";
-    return false;
-  }
+  // Replace with squared_area() of face
+  // Apply on triangulated meshes
+  // auto area1 = PMP::area(mesh1);
+  // auto area2 = PMP::area(mesh2);
+  // if (area1 != area2) {
+  //   std::cout << "Meshes (" << index << ") differ in boundary area " << std::fixed << area1 << ", " << area2 << "\n";
+  //   return false;
+  // }
   // std::cout << "Boundary area: " << area1 << "\n";
 
   // 3. Compare characteristics (i.e., self-intersection, convexity)
@@ -346,7 +348,7 @@ int main(int argc, char* argv[]) {
     if (points1.size() != points2.size()) {
       std::cout << "Sub meshes " << indices1[i] << " and " << indices2[i] << " differ in number of points "
                 << points1.size() << ", " << points2.size() << "\n";
-      return false;
+      return -1;
     }
     if (points1 != points2) {
       for (const auto& p : points1) std::cout << p << " ";
@@ -354,14 +356,14 @@ int main(int argc, char* argv[]) {
       for (const auto& p : points2) std::cout << p << " ";
       std::cout << std::endl;
       std::cout << "Sub meshes " << indices1[i] << " and " << indices2[i] << " differ in points\n";
-      return false;
+      return -1;
     }
     const auto& mesh1 = meshes1[i];
     const auto& mesh2 = meshes2[i];
     auto diff = compare(mesh1, mesh2, kernel, i);
     if (! diff) {
       // std::cout << "Sub meshes " << indices1[i] << " and " << indices2[i] << " differ\n";
-      return 1;
+      return -1;
     }
   }
 
