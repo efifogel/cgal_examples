@@ -257,41 +257,44 @@ int main(int argc, char* argv[]) {
 
   Kernel kernel;
 
-  Mesh mesh1;
+  Mesh mesh1, mesh2;
   if (! read_mesh(filename1, mesh1, kernel)) return -1;
-  if (mesh1.is_empty()) {
-    std::cout << "Mesh " << filename1 << " is empty" << "\n";
-    return 0;
-  }
-  Mesh mesh2;
   if (! read_mesh(filename2, mesh2, kernel)) return -1;
+
+  if (mesh1.is_empty()) {
+    if (mesh2.is_empty()) return 0;
+    std::cout << "Mesh " << filename1 << " is empty" << "\n";
+    return -1;
+  }
   if (mesh2.is_empty()) {
     std::cout << "Mesh " << filename2 << " is empty" << "\n";
-    return 0;
+    return -1;
   }
 
-  CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
-  gso.ignore_all_vertices(true);
-  gso.ignore_all_edges(true);
-  gso.colored_face = [](const Mesh&, face_descriptor) -> bool { return true; };
-  gso.face_color = [] (const Mesh&, face_descriptor fh) -> CGAL::IO::Color {
-    if (fh == boost::graph_traits<Mesh>::null_face()) return CGAL::IO::Color(100, 125, 200);
-    return get_random_color(CGAL::get_default_random());
-  };
-  CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso1;
-  gso1.ignore_all_vertices(true);
-  gso1.ignore_all_edges(true);
-  gso1.colored_face = [](const Mesh&, face_descriptor) -> bool { return true; };
-  gso1.face_color = [](const Mesh&, face_descriptor fh) -> CGAL::IO::Color { return CGAL::IO::Color(0, 0, 255); };
-  CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso2;
-  gso2.ignore_all_vertices(true);
-  gso2.ignore_all_edges(true);
-  gso2.colored_face = [](const Mesh&, face_descriptor) -> bool { return true; };
-  gso2.face_color = [](const Mesh&, face_descriptor fh) -> CGAL::IO::Color { return CGAL::IO::Color(255, 0, 0); };
-  CGAL::Graphics_scene scene;
-  CGAL::add_to_graphics_scene(mesh1, scene, gso1);
-  CGAL::add_to_graphics_scene(mesh2, scene, gso2);
-  CGAL::draw_graphics_scene(scene);
+  if (do_draw) {
+    CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
+    gso.ignore_all_vertices(true);
+    gso.ignore_all_edges(true);
+    gso.colored_face = [](const Mesh&, face_descriptor) -> bool { return true; };
+    gso.face_color = [] (const Mesh&, face_descriptor fh) -> CGAL::IO::Color {
+      if (fh == boost::graph_traits<Mesh>::null_face()) return CGAL::IO::Color(100, 125, 200);
+      return get_random_color(CGAL::get_default_random());
+    };
+    CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso1;
+    gso1.ignore_all_vertices(true);
+    gso1.ignore_all_edges(true);
+    gso1.colored_face = [](const Mesh&, face_descriptor) -> bool { return true; };
+    gso1.face_color = [](const Mesh&, face_descriptor fh) -> CGAL::IO::Color { return CGAL::IO::Color(0, 0, 255); };
+    CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso2;
+    gso2.ignore_all_vertices(true);
+    gso2.ignore_all_edges(true);
+    gso2.colored_face = [](const Mesh&, face_descriptor) -> bool { return true; };
+    gso2.face_color = [](const Mesh&, face_descriptor fh) -> CGAL::IO::Color { return CGAL::IO::Color(255, 0, 0); };
+    CGAL::Graphics_scene scene;
+    CGAL::add_to_graphics_scene(mesh1, scene, gso1);
+    CGAL::add_to_graphics_scene(mesh2, scene, gso2);
+    CGAL::draw_graphics_scene(scene);
+  }
 
   // 1. Compare # of components
 
