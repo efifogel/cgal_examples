@@ -132,24 +132,33 @@ bool compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel, std::si
   }
   // std::cout << "# of faces: " << num_faces1 << "\n";
 
+  auto tmesh1 = mesh1;
+  using Vector_3 = typename Kernel::Vector_3;
+  auto normals1 = tmesh1.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+  triangulate_faces(tmesh1, normals1, params::geom_traits(kernel));
+
+  auto tmesh2 = mesh2;
+  using Vector_3 = typename Kernel::Vector_3;
+  auto normals2 = tmesh2.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+  triangulate_faces(tmesh2, normals2, params::geom_traits(kernel));
+
   // 2. Compare volume and surface area
-  auto volume1 = PMP::volume(mesh1);
-  auto volume2 = PMP::volume(mesh2);
+  auto volume1 = PMP::volume(tmesh1);
+  auto volume2 = PMP::volume(tmesh2);
   if (volume1 != volume2) {
-    std::cout << "Meshes (" << index << ") differ in volume " << volume1 << ", " << volume2 << "\n";
+    std::cout << "Meshes (" << index << ") differ in volume " << std::fixed << volume1 << ", " << volume2 << "\n";
     return false;
   }
-  // std::cout << "Volume: " << volume1 << "\n";
+  // std::cout << "Volume: " << std::fixed << volume1 << "\n";
 
   // Replace with squared_area() of face
-  // Apply on triangulated meshes
-  // auto area1 = PMP::area(mesh1);
-  // auto area2 = PMP::area(mesh2);
-  // if (area1 != area2) {
-  //   std::cout << "Meshes (" << index << ") differ in boundary area " << std::fixed << area1 << ", " << area2 << "\n";
-  //   return false;
-  // }
-  // std::cout << "Boundary area: " << area1 << "\n";
+  auto area1 = PMP::area(tmesh1);
+  auto area2 = PMP::area(tmesh2);
+  if (area1 != area2) {
+    std::cout << "Meshes (" << index << ") differ in boundary area " << std::fixed << area1 << ", " << area2 << "\n";
+    return false;
+  }
+  // std::cout << "Boundary area: " << std::fixed << area1 << "\n";
 
   // 3. Compare characteristics (i.e., self-intersection, convexity)
 
@@ -314,7 +323,6 @@ int main(int argc, char* argv[]) {
     points_of_meshes1[i].reserve(mesh.number_of_vertices());
     for (const auto& p : mesh.points()) {
       points_of_meshes1[i].push_back(p);
-      // std::cout << p << " ";
     }
     // std::cout << std::endl;
     std::sort(points_of_meshes1[i].begin(), points_of_meshes1[i].end());
@@ -327,11 +335,10 @@ int main(int argc, char* argv[]) {
   std::vector<Points> points_of_meshes2(num_ccs2);
   for (std::size_t i = 0; i < num_ccs2; ++i) {
     auto& mesh = meshes2[i];
-    // PMP::remove_isolated_vertices(mesh);
+    PMP::remove_isolated_vertices(mesh);
     points_of_meshes2[i].reserve(mesh.number_of_vertices());
     for (const auto& p : mesh.points()) {
       points_of_meshes2[i].push_back(p);
-      // std::cout << p << " ";
     }
     // std::cout << std::endl;
     std::sort(points_of_meshes2[i].begin(), points_of_meshes2[i].end());
