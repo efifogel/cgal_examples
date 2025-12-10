@@ -1,0 +1,11 @@
+# Add subdirectories
+add_subdirectory(cmp_meshes)
+# add_subdirectory(cpp)
+# add_subdirectory(repair_meshes)
+# add_subdirectory(test_arr)
+# add_subdirectory(test_boost)
+# add_subdirectory(test_bso)
+add_subdirectory(test_corefine)
+# add_subdirectory(test_intersection)
+add_subdirectory(test_off)
+# add_subdirectory(test_qt6)

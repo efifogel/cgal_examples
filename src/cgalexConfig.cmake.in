@@ -1,0 +1,26 @@
+#  Config file for the cgalex package
+# It defines the following variables
+# cgalex_INCLUDE_DIRS - include directories for cgalex
+# cgalex_LIBRARIES    - libraries to link against
+# cgalex_EXECUTABLE   - the bar executable
+
+# Compute paths
+get_filename_component (cgalex_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
+set (cgalex_INCLUDE_DIRS "@CONF_INCLUDE_DIRS@")
+
+# Our library dependencies (contains definitions for IMPORTED targets)
+# if (NOT TARGET cgalex AND NOT CGALEX_BINARY_DIR)
+#   include ("${cgalex_CMAKE_DIR}/cgalexTargets.cmake")
+# endif ()
+
+# These are IMPORTED targets created by cgalexTargets.cmake
+set(cgalex_cgalex_LIBRARY cgalex)
+# set(cgalex_cgalexpy_LIBRARY cgalexpy)
+# set(cgalex_LIBRARIES cgalex cgalexpy)
+set(cgalex_LIBRARIES cgalex)
+# set(cgalex_EXECUTABLE app1)
+# set(cgalex_EXECUTABLE app2)
+
+foreach(component ${cgalex_FIND_COMPONENTS})
+  include(${CMAKE_CURRENT_LIST_DIR}/cgalex${component}Config.cmake)
+endforeach()

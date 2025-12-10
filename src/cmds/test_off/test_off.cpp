@@ -8,11 +8,15 @@
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #if defined(USE_SURFACE_MESH)
 #include <CGAL/Surface_mesh.h>
+#if defined(CGALEX_WITH_VISUAL)
 #include <CGAL/draw_surface_mesh.h>
+#endif
 #else
 #include <CGAL/Polyhedron_3.h>
 #include <CGAL/Polyhedron_traits_with_normals_3.h>
+#if defined(CGALEX_WITH_VISUAL)
 #include <CGAL/draw_polyhedron.h>
+#endif
 #endif
 
 #include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
@@ -29,7 +33,7 @@
 #include "Extended_polyhedron_items.h"
 #endif
 
-#include "retriangulate_faces.h"
+#include "cgalex/retriangulate_faces.h"
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 namespace params = CGAL::parameters;
@@ -117,9 +121,10 @@ int main(int argc, char* argv[]) {
   using Face_color_map = boost::property_map<Mesh, CGAL::dynamic_face_property_t<CGAL::IO::Color> >::type;
 #endif
 
-  using Vertex_descriptor = boost::graph_traits<Mesh>::vertex_descriptor;
-  using Edge_descriptor = boost::graph_traits<Mesh>::edge_descriptor;
-  using Face_descriptor = boost::graph_traits<Mesh>::face_descriptor;
+  using vertex_descriptor = boost::graph_traits<Mesh>::vertex_descriptor;
+  using halfedge_descriptor = boost::graph_traits<Mesh>::halfedge_descriptor;
+  using edge_descriptor = boost::graph_traits<Mesh>::edge_descriptor;
+  using face_descriptor = boost::graph_traits<Mesh>::face_descriptor;
 
   const char* filename = (argc > 1) ? argv[1] : "cube.off";
   // std::cout << filename << std::endl;
@@ -134,7 +139,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  auto face_property_maps = mesh.properties<Face_descriptor>();
+  auto face_property_maps = mesh.properties<face_descriptor>();
   // for (const auto& pm : face_property_maps) std::cout << pm << std::endl;
 #else
   if (! CGAL::IO::read_polygon_mesh(filename, mesh, params::verbose(true).repair_polygon_soup(true).
@@ -145,7 +150,8 @@ int main(int argc, char* argv[]) {
 #endif
   // std::cout << "Loaded mesh with " << num_vertices(mesh) << " vertices, " << num_faces(mesh) << " faces.\n";
 
-  CGAL::Graphics_scene_options<Mesh, Vertex_descriptor, Edge_descriptor, Face_descriptor> gso;
+#if defined(CGALEX_WITH_VISUAL)
+  CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
   gso.ignore_all_vertices(true);
 
   gso.ignore_all_edges(true);
@@ -171,7 +177,7 @@ int main(int argc, char* argv[]) {
   };
 
 #if defined(USE_SURFACE_MESH)
-  auto fcolors_optional = mesh.property_map<Face_descriptor, CGAL::IO::Color>("f:color");
+  auto fcolors_optional = mesh.property_map<face_descriptor, CGAL::IO::Color>("f:color");
   if (fcolors_optional) {
     has_colors = true;
     fcolors = fcolors_optional.value();
@@ -195,15 +201,16 @@ int main(int argc, char* argv[]) {
                 << int(c.blue())  << ", "
                 << int(c.alpha()) << ")\n";
     }
-    gso.colored_face=[](const Mesh&, Face_descriptor) -> bool { return true; };
-    gso.face_color=[&](const Mesh& mesh, Face_descriptor fd) -> CGAL::IO::Color { return get(fcolors, fd); };
+    gso.colored_face=[](const Mesh&, face_descriptor) -> bool { return true; };
+    gso.face_color=[&](const Mesh& mesh, face_descriptor fd) -> CGAL::IO::Color { return get(fcolors, fd); };
   }
-  PMP::stitch_borders(mesh, params::apply_per_connected_component(true));
-  CGAL::draw(mesh, gso, filename);
+#endif
 
   // Repair
-  PMP::remove_degenerate_faces(mesh);
-  PMP::remove_degenerate_edges(mesh);
+  // PMP::stitch_borders(mesh, params::apply_per_connected_component(true));
+  // PMP::remove_degenerate_faces(mesh);
+  // PMP::remove_degenerate_edges(mesh);
+  // CGAL::draw(mesh, gso, filename);
 
   // General validity
   auto is_valid = mesh.is_valid();
@@ -211,35 +218,64 @@ int main(int argc, char* argv[]) {
 
   // Closed
   auto is_closed = CGAL::is_closed(mesh);
-  if (! is_closed) std::cerr << "The mesh is not closed\n";
+  if (! is_closed) {
+    std::cerr << "The mesh is not closed\n";
+    std::vector<halfedge_descriptor> border_cycles;
+    PMP::extract_boundary_cycles(mesh, std::back_inserter(border_cycles));
+    std::cout << "# boundary cycles: " << border_cycles.size() << std::endl;
+    std::cout << "Cycle: " << std::endl;
+    for (const auto& cycle : border_cycles) std::cout << cycle << std::endl;
+  }
 
-  // Merge coplanar faces
-  using Vector_3 = typename Kernel::Vector_3;
-  Kernel kernel;
-  auto np = params::geom_traits(kernel);
-  auto normals = mesh.add_property_map<Face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+  // Does self intersect
+  auto self_intersect = PMP::does_self_intersect(mesh);
+  if (self_intersect) std::cerr << "The mesh self intersects\n";
+
+  if (is_closed) {
+    using Vector_3 = typename Kernel::Vector_3;
+    Kernel kernel;
+    auto np = params::geom_traits(kernel);
+    auto normals = mesh.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
 
 #if 1
-  PMP::compute_face_normals(mesh, normals, np);
-  retriangulate_faces(mesh, normals, np);
-
-  // General validity
-  is_valid = mesh.is_valid(true);
-  if (! is_valid) std::cerr << "The mesh is not valid 2\n";
-
-  // Closed
-  is_closed = CGAL::is_closed(mesh);
-  if (! is_closed) std::cerr << "The mesh is not closed 2\n";
+    PMP::compute_face_normals(mesh, normals, np);
+    retriangulate_faces(mesh, normals, np);
 #else
-  Mesh temp;
-  PMP::remesh_planar_patches(mesh, temp);
-  std::swap(mesh, temp);
+    Mesh temp;
+    PMP::remesh_planar_patches(mesh, temp);
+    std::swap(mesh, temp);
 #endif
 
-  // typename Kernel::Direction_3 dir(0, 0, 1);
-  // print_faces_ccw(mesh, normals, dir, 3);
+    // General validity
+    is_valid = mesh.is_valid(true);
+    if (! is_valid) std::cerr << "The mesh is not valid 2\n";
 
-  CGAL::draw(mesh, gso, "Intermediate");
+    // Closed
+    is_closed = CGAL::is_closed(mesh);
+    if (! is_closed) {
+      std::cerr << "The mesh is not closed 2\n";
+      std::vector<halfedge_descriptor> border_cycles;
+      PMP::extract_boundary_cycles(mesh, std::back_inserter(border_cycles));
+      std::cout << "# boundary cycles: " << border_cycles.size() << std::endl;
+      std::cout << "Cycle: " << std::endl;
+      auto vpm = get_property_map(CGAL::vertex_point, mesh);
+      for (const auto& cycle : border_cycles) {
+        auto v_src = CGAL::source(cycle, mesh);
+        const auto& src = get(vpm, v_src);
+        auto v_trg = CGAL::target(cycle, mesh);
+        const auto& trg = get(vpm, v_trg);
+        std::cout << src << " " << trg << std::endl;
+      }
+    }
+
+    // Does self intersect
+    auto self_intersect = PMP::does_self_intersect(mesh);
+    if (self_intersect) std::cerr << "The mesh self intersects\n";
+
+#if defined(CGALEX_WITH_VISUAL)
+    CGAL::draw(mesh, gso, "Intermediate");
+#endif
+  }
 
   // Triangular mesh
   auto is_tri = CGAL::is_triangle_mesh(mesh);
@@ -259,15 +295,11 @@ int main(int argc, char* argv[]) {
     // if (! is_closed) std::cerr << "The mesh is not closed\n";
   }
 
-  // Does self intersect
-  auto self_intersect = PMP::does_self_intersect(mesh);
-  if (self_intersect) std::cerr << "The mesh self intersects\n";
-
   // Connected components
 #if defined(USE_SURFACE_MESH)
-  auto fccmap = mesh.add_property_map<Face_descriptor, std::size_t>("f:CC").first;
+  auto fccmap = mesh.add_property_map<face_descriptor, std::size_t>("f:CC").first;
   std::size_t num_ccs = PMP::connected_components(mesh, fccmap);
-  // std::cout << "Number of connected components: " << num_ccs << "\n";
+  std::cout << "Number of connected components: " << num_ccs << "\n";
 
   // Does bound a volume
   if (is_closed && is_tri) {

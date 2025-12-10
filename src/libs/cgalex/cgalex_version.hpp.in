@@ -1,0 +1,21 @@
+// Copyright (c) 2022 Israel.
+// Copyright (c) 2023 Israel.
+// All rights reserved to Xanadu Ltd.
+//
+// This is unpublished proprietary source code.
+// The copyright notice does not evidence any actual or intended publication.
+//
+// Licensees holding a valid commercial license may use this file in accordance
+// with the commercial license agreement provided with the software.
+//
+// Author(s): Efi Fogel         <efifogel@gmail.com>
+
+#ifndef CGALEX_VERSION_HPP
+#define CGALEX_VERSION_HPP
+
+#define CGALEX_VERSION_MAJOR @CMAKE_PROJECT_VERSION_MAJOR@
+#define CGALEX_VERSION_MINOR @CMAKE_PROJECT_VERSION_MINOR@
+#define CGALEX_VERSION_PATCH @CMAKE_PROJECT_VERSION_PATCH@
+#define CGALEX_VERSION_STR "@CMAKE_PROJECT_VERSION@"
+
+#endif

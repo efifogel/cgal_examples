@@ -1,15 +1,49 @@
-cmake_minimum_required(VERSION 3.1...3.23)
-project(test_off LANGUAGES CXX)
-find_package(Qt6 QUIET COMPONENTS Widgets)
-find_package(CGAL QUIET COMPONENTS Core OPTIONAL_COMPONENTS Qt6)
-if (NOT CGAL_FOUND)
-  message(FATAL_ERROR "This program requires the CGAL library, and will not be compiled.")
-endif ()
-if (NOT CGAL_Qt6_FOUND)
-  message(FATAL_ERROR "This program requires the CGAL_Qt6 library, and will not be compiled.")
+set (component test_off)
+
+# Add source files
+set(TESTRX_SOURCE_FILES ${TESTRX_SOURCE_FILES} ${component}.cpp)
+
+if (BUILD_SHARED_LIBS)
+  add_definitions(-DCGALEX_ALL_DYN_LINK)
 endif()
 
-# create_single_source_cgal_program("test_off.cpp")
-add_executable(test_off test_off.cpp)
+add_executable(${component} ${TESTRX_SOURCE_FILES})
+set_target_properties(${component} PROPERTIES OUTPUT_NAME ${component})
 
-target_link_libraries(test_off PUBLIC CGAL::CGAL_Basic_viewer)
+target_include_directories(${component} PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+
+# Find required Boost components
+find_package(Boost CONFIG ${BOOST_MIN_VERSION} REQUIRED COMPONENTS system filesystem program_options)
+
+target_link_libraries(${component} PRIVATE
+  CGAL::CGAL
+  Boost::program_options
+  Boost::filesystem
+  cgalex)
+
+if (${project}_WITH_VISUAL)
+  target_link_libraries(${component} PRIVATE CGAL::CGAL_Qt6)
+endif ()
+
+# Don't skip the full RPATH for the build tree
+# set_property(TARGET player PROPERTY SKIP_BUILD_RPATH FALSE)
+
+# when building, don't use the install RPATH already
+# (but later on when installing)
+# set_property(TARGET player PROPERTY BUILD_WITH_INSTALL_RPATH TRUE)
+
+# the RPATH to be used when installing
+
+# don't add the automatically determined parts of the RPATH
+# which point to directories outside the build tree to the install RPATH
+if (NOT CGALEX_USE_STATIC_LIBS)
+  set_property(TARGET ${component} PROPERTY INSTALL_RPATH_USE_LINK_PATH TRUE)
+endif()
+
+install(TARGETS ${component}
+  EXPORT CGALEXTargets
+  RUNTIME DESTINATION ${CGALEX_INSTALL_BIN_DIR}
+  LIBRARY DESTINATION ${CGALEX_INSTALL_LIB_DIR}
+  ARCHIVE DESTINATION ${CGALEX_INSTALL_LIB_DIR})

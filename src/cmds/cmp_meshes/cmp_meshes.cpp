@@ -11,11 +11,9 @@
 #include <boost/graph/isomorphism.hpp>
 #include <boost/graph/vf2_sub_graph_iso.hpp>
 
-#include <CGAL/Basic_viewer.h>
 #include <CGAL/boost/graph/helpers.h>
 #include <CGAL/boost/graph/selection.h>
 #include <CGAL/convexity_check_3.h>
-#include <CGAL/draw_surface_mesh.h>
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Graphics_scene_options.h>
@@ -30,8 +28,13 @@
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Surface_mesh.h>
 
-#include "merge_coplanar_faces.h"
-#include "triangulate_faces.h"
+#if defined(CGALEX_WITH_VISUAL)
+#include <CGAL/Basic_viewer.h>
+#include <CGAL/draw_surface_mesh.h>
+#endif
+
+#include "cgalex/merge_coplanar_faces.h"
+#include "cgalex/triangulate_faces.h"
 
 using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
 // using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
@@ -271,6 +274,7 @@ int main(int argc, char* argv[]) {
     return -1;
   }
 
+#if defined(CGALEX_WITH_VISUAL)
   if (do_draw) {
     CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
     gso.ignore_all_vertices(true);
@@ -295,6 +299,7 @@ int main(int argc, char* argv[]) {
     CGAL::add_to_graphics_scene(mesh2, scene, gso2);
     CGAL::draw_graphics_scene(scene);
   }
+#endif
 
   // 1. Compare # of components
 
