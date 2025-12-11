@@ -34,7 +34,10 @@ configure_file(${project}_version.hpp.in ${${project}_GENERATED_INC_DIR}/${proje
 # Private headers
 
 # Public headers
+set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/find_file_fullname.h)
+set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/io_paths.h)
 set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/merge_coplanar_faces.h)
+set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/Paths.h)
 set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/retriangulate_faces.h)
 set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/triangulate_faces.h)
 
