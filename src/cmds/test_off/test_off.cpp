@@ -8,13 +8,13 @@
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #if defined(USE_SURFACE_MESH)
 #include <CGAL/Surface_mesh.h>
-#if defined(CGALEX_WITH_VISUAL)
+#if defined(CGALEX_HAS_VISUAL)
 #include <CGAL/draw_surface_mesh.h>
 #endif
 #else
 #include <CGAL/Polyhedron_3.h>
 #include <CGAL/Polyhedron_traits_with_normals_3.h>
-#if defined(CGALEX_WITH_VISUAL)
+#if defined(CGALEX_HAS_VISUAL)
 #include <CGAL/draw_polyhedron.h>
 #endif
 #endif
@@ -150,7 +150,7 @@ int main(int argc, char* argv[]) {
 #endif
   // std::cout << "Loaded mesh with " << num_vertices(mesh) << " vertices, " << num_faces(mesh) << " faces.\n";
 
-#if defined(CGALEX_WITH_VISUAL)
+#if defined(CGALEX_HAS_VISUAL)
   CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
   gso.ignore_all_vertices(true);
 
@@ -272,7 +272,7 @@ int main(int argc, char* argv[]) {
     auto self_intersect = PMP::does_self_intersect(mesh);
     if (self_intersect) std::cerr << "The mesh self intersects\n";
 
-#if defined(CGALEX_WITH_VISUAL)
+#if defined(CGALEX_HAS_VISUAL)
     CGAL::draw(mesh, gso, "Intermediate");
 #endif
   }

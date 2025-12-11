@@ -326,12 +326,15 @@ int main(int argc, char* argv[]) {
   if (! read_mesh(fullname2, mesh2, kernel)) return -1;
 
   if (mesh1.is_empty()) {
-    if (mesh2.is_empty()) return 0;
-    std::cout << "Mesh " << fullname1 << " is empty" << "\n";
+    if (mesh2.is_empty()) {
+      std::cout << "Both meshes are empty\n";
+      return 0;
+    }
+    std::cerr << "Mesh " << fullname1 << " is empty" << "\n";
     return -1;
   }
   if (mesh2.is_empty()) {
-    std::cout << "Mesh " << fullname2 << " is empty" << "\n";
+    std::cerr << "Mesh " << fullname2 << " is empty" << "\n";
     return -1;
   }
 

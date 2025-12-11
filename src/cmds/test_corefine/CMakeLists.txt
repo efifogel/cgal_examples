@@ -24,7 +24,7 @@ target_link_libraries(${component} PRIVATE
   cgalex)
 
 if (${project}_WITH_VISUAL)
-  target_link_libraries(${component} PRIVATE CGAL::CGAL_Qt6)
+  target_link_libraries(${component} PRIVATE CGAL::CGAL_Qt6 CGAL::CGAL_Basic_viewer)
 endif ()
 
 # Don't skip the full RPATH for the build tree

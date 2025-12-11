@@ -27,7 +27,7 @@
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Surface_mesh.h>
 
-#if defined(CGALEX_WITH_VISUAL)
+#if defined(CGALEX_HAS_VISUAL)
 #include <CGAL/Basic_viewer.h>
 #include <CGAL/draw_surface_mesh.h>
 #endif
@@ -186,7 +186,7 @@ int main(int argc, char* argv[]) {
   // reduce_coordinate_precision(mesh1, precision);
   // reduce_coordinate_precision(mesh2, precision);
 
-#if defined(CGALEX_WITH_VISUAL)
+#if defined(CGALEX_HAS_VISUAL)
   CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
   gso.ignore_all_vertices(true);
   gso.ignore_all_edges(true);
@@ -389,7 +389,7 @@ int main(int argc, char* argv[]) {
   auto is_closed = CGAL::is_closed(result);
   if (! is_closed) std::cerr << "The mesh is not closed\n";
 
-#if defined(CGALEX_WITH_VISUAL)
+#if defined(CGALEX_HAS_VISUAL)
   CGAL::draw(result, gso, "raw");
 #endif
 
@@ -412,7 +412,7 @@ int main(int argc, char* argv[]) {
   auto self_intersect = PMP::does_self_intersect(result);
   if (self_intersect) std::cerr << "The mesh self intersects\n";
 
-#if defined(CGALEX_WITH_VISUAL)
+#if defined(CGALEX_HAS_VISUAL)
   CGAL::draw(result, gso, "result");
 #endif
 

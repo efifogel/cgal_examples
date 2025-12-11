@@ -58,6 +58,10 @@ endif()
 ################################################################################
 
 # Add some compiler options
+if (${project}_WITH_VISUAL)
+  add_definitions(-D${project_upper}_HAS_VISUAL=)
+endif()
+
 if (MSVC)
   add_definitions(-D${project_upper}_HAS_DECLSPEC)
 #   add_definitions(-GR)
