@@ -38,77 +38,6 @@
 namespace PMP = CGAL::Polygon_mesh_processing;
 namespace params = CGAL::parameters;
 
-template <typename Mesh, typename Map, typename Direction>
-void print_faces_ccw(const Mesh& mesh, const Map& normals, const Direction& bdir, std::size_t min_degree) {
-  std::cout << "#VRML V2.0 utf8\n"
-    "NavigationInfo { type [ \"EXAMINE\" \"ANY\" ] }\n"
-    "Group {\n"
-    "  children [\n";
-
-  using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
-  Kernel kernel;
-  auto eq = kernel.equal_3_object();
-
-  double color[3] = {1.0, 1.0, 1.0};
-  std::size_t ci = 0;
-  for (auto f : mesh.faces()) {
-    if (mesh.degree(f) < min_degree) continue;
-
-    const auto& normal = get(normals, f);
-    const auto& dir = normal.direction();
-    if (! eq(dir, bdir)) continue;
-
-    std::cout << "    # Face: " << f << ", " << normal << "\n";
-    std::cout << "    Switch {\n"
-      "      whichChoice 0\n"
-      "      children Shape {\n"
-      "        appearance Appearance {\n"
-      "          material Material { }\n"
-      "        }\n"
-      "        geometry IndexedLineSet {\n"
-      "          coord Coordinate {\n"
-      "            point [\n";
-
-    // Get a halfedge bounding the face
-    auto h = mesh.halfedge(f);
-
-    // Iterate CCW around the face
-    auto h_start = h;
-    std::size_t cnt = 0;
-    do {
-      auto v = mesh.target(h);
-      const auto& p = mesh.point(v);
-      std::cout << "                   " << p.x() << " " << p.y() << " " << p.z() << std::endl;
-      h = mesh.next(h);
-      ++cnt;
-    } while (h != h_start);
-
-    std::cout << "                  ]\n"
-      "          }\n"
-      "          coordIndex [\n";
-    std::cout << "                      ";
-    for (auto i = 0; i < cnt; ++i) std::cout << i << " ";
-    std::cout << "0 -1\n";
-    std::cout << "                     ]\n"
-      "          colorPerVertex FALSE\n"
-      "          color Color {\n"
-      "            color[\n";
-    std::cout << "                  " << color[0] << " " << color[1] << " " << color[2] << "\n";
-      std::cout << "                 ]\n"
-      "          }\n"
-      "        }\n"
-      "      }\n"
-      "    }\n";
-    ci = (ci + 1) % 3;
-    color[ci] -= 0.33;
-    if (color[ci] < 0.0) color[ci] = 1.0;
-    if ((color[0] < 0.1) && (color[1] < 0.1) && (color[2] < 0.1))
-      color[0] = color[1] = color[2] = 1.0;
-  }
-  std::cout << "   ]\n"
-    "}  \n";
-}
-
 int main(int argc, char* argv[]) {
   using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
 
@@ -206,10 +135,12 @@ int main(int argc, char* argv[]) {
   }
 #endif
 
+  Kernel kernel;
+
   // Repair
   // PMP::stitch_borders(mesh, params::apply_per_connected_component(true));
-  // PMP::remove_degenerate_faces(mesh);
-  // PMP::remove_degenerate_edges(mesh);
+  PMP::remove_degenerate_faces(mesh);
+  PMP::remove_degenerate_edges(mesh);
   // CGAL::draw(mesh, gso, filename);
 
   // General validity
@@ -231,9 +162,22 @@ int main(int argc, char* argv[]) {
   auto self_intersect = PMP::does_self_intersect(mesh);
   if (self_intersect) std::cerr << "The mesh self intersects\n";
 
+  // // Detect Zero area
+  // std::vector<face_descriptor> zero_area_faces;
+  // // const double area_threshold = 1e-15; // Define a small threshold for floating point comparison
+  // const double area_threshold = 0;
+  // for (auto f : mesh.faces()) {
+  //   auto area = CGAL::Polygon_mesh_processing::face_area(f, mesh);
+  //   if (area <= area_threshold) zero_area_faces.push_back(f);
+  // }
+  // if (! zero_area_faces.empty()) {
+  //   std::cerr << "The mesh has " << zero_area_faces.size() << " zero-area faces\n";
+  //   auto res = PMP::remove_almost_degenerate_faces(mesh, params::geom_traits(kernel));
+  //   if (! res) std::cout << "Almost degenerate faces have been removed\n";
+  // }
+
   if (is_closed) {
     using Vector_3 = typename Kernel::Vector_3;
-    Kernel kernel;
     auto np = params::geom_traits(kernel);
     auto normals = mesh.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
 
