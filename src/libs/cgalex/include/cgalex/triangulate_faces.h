@@ -15,7 +15,7 @@
 #include <CGAL/Triangulation_data_structure_2.h>
 #include <CGAL/Union_find.h>
 
-#include "merge_coplanar_faces.h"
+#include "cgalex/merge_coplanar_faces.h"
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 namespace params = CGAL::parameters;
