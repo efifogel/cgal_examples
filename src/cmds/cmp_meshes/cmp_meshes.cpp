@@ -23,13 +23,14 @@
 #include <CGAL/Polygon_mesh_processing/connected_components.h>
 #include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
 #include <CGAL/Polygon_mesh_processing/polygon_mesh_to_polygon_soup.h>
+#include <CGAL/Polygon_mesh_processing/repair_degeneracies.h>
 #include <CGAL/Polygon_mesh_processing/self_intersections.h>
 #include <CGAL/Polygon_mesh_processing/measure.h>
 #include <CGAL/Polygon_mesh_processing/repair.h>
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Surface_mesh.h>
 
-#if defined(CGALEX_WITH_VISUAL)
+#if defined(CGALEX_HAS_VISUAL)
 #include <CGAL/Basic_viewer.h>
 #include <CGAL/draw_surface_mesh.h>
 #endif
@@ -71,35 +72,33 @@ void apply_permutation(std::vector<Mesh>& v, std::vector<int> indices) {
 }
 
 //
-bool read_mesh(const std::string& filename, Mesh& mesh, const Kernel& kernel) {
+bool read_mesh(const std::string& filename, Mesh& mesh, bool do_repair, const Kernel& kernel) {
   // params::verbose(true).repair_polygon_soup(true)
-  if (! PMP::IO::read_polygon_mesh(filename, mesh)) {
-    std::cerr << "Error: Cannot read " << filename << "\n";
+  if (! PMP::IO::read_polygon_mesh(filename, mesh, params::verbose(true).repair_polygon_soup(true))) {
+    std::cout << "Error: Cannot read " << filename << "\n";
     return false;
   }
 
   auto is_valid = mesh.is_valid();
   if (! is_valid) {
-    std::cerr << "Error: Mesh " << filename << " is invalid\n";
+    std::cout << "Error: Mesh " << filename << " is invalid\n";
     return false;
   }
 
   auto is_closed = CGAL::is_closed(mesh);
   if (! is_closed) {
-    std::cerr << "Error: Mesh " << filename << " is not closed\n";
+    std::cout << "Error: Mesh " << filename << " is not closed\n";
     return false;
   }
 
   auto is_tri = CGAL::is_triangle_mesh(mesh);
   if (! is_tri) PMP::triangulate_faces(mesh, params::geom_traits(kernel));
 
-  PMP::remove_isolated_vertices(mesh);
-
-  using Vector_3 = typename Kernel::Vector_3;
-  auto np = CGAL::parameters::geom_traits(kernel);
-  auto normals = mesh.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
-  PMP::compute_face_normals(mesh, normals, np);
-  merge_coplanar_faces(mesh, normals, np);
+  if (do_repair) {
+    PMP::remove_degenerate_faces(mesh);
+    PMP::remove_degenerate_edges(mesh);
+    PMP::remove_isolated_vertices(mesh);
+  }
 
   return true;
 }
@@ -112,7 +111,9 @@ struct isomorphism_callback {
 };
 
 enum class Criterion : int {
-  NUMBER_OF_VERTICES = 1,
+  NUMBER_OF_POINTS = 1,
+  POINTS,
+  NUMBER_OF_VERTICES,
   NUMBER_OF_EDGES,
   NUMBER_OF_FACES,
   VOLUME,
@@ -126,97 +127,83 @@ struct Result {
   bool m_ok = true;
   Criterion m_criterion;
   std::string m_message;
+  Result() : m_ok(true) {}
+  Result(Criterion criterion, const std::string& message) : m_ok(false), m_criterion(criterion), m_message(message) {}
+  Result(bool ok, Criterion criterion, const std::string& message) : m_ok(ok), m_criterion(criterion), m_message(message) {}
 };
 
 //
-Result compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel, double tolerance) {
-  // 2. Compare number of features.
-  auto num_vertices1 = mesh1.number_of_vertices();
-  auto num_edges1 = mesh1.number_of_edges();
-  auto num_faces1 = mesh1.number_of_faces();
+std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel, double tolerance, std::size_t verbose) {
+  std::vector<Result> results;
 
+  // 1. Compare number of features.
+  auto num_vertices1 = mesh1.number_of_vertices();
   auto num_vertices2 = mesh2.number_of_vertices();
+  if (num_vertices1 != num_vertices2) {
+    results.emplace_back(Criterion::NUMBER_OF_VERTICES, std::to_string(num_vertices1) + ", " + std::to_string(num_vertices2));
+  }
+  else if (verbose > 1) results.emplace_back(true, Criterion::NUMBER_OF_VERTICES, std::to_string(num_vertices1));
+
+  auto num_edges1 = mesh1.number_of_edges();
   auto num_edges2 = mesh2.number_of_edges();
+  if (num_edges1 != num_edges2) {
+    results.emplace_back(Criterion::NUMBER_OF_EDGES, std::to_string(num_edges1) + ", " + std::to_string(num_edges2));
+  }
+  else if (verbose > 1) results.emplace_back(true, Criterion::NUMBER_OF_EDGES, std::to_string(num_edges1));
+
+  auto num_faces1 = mesh1.number_of_faces();
   auto num_faces2 = mesh2.number_of_faces();
 
-  Result result;
-  if (num_vertices1 != num_vertices2) {
-    result.m_ok = false;
-    result.m_criterion = Criterion::NUMBER_OF_VERTICES;
-    result.m_message = std::to_string(num_vertices1) + ", " + std::to_string(num_vertices2);
-    return result;
-  }
-  // std::cout << "# of vertices: " << num_vertices1 << "\n";
-
-  if (num_edges1 != num_edges2) {
-    result.m_ok = false;
-    result.m_criterion = Criterion::NUMBER_OF_EDGES;
-    result.m_message = std::to_string(num_edges1) + ", " + std::to_string(num_edges2);
-    return result;
-  }
-  // std::cout << "# of edges: " << num_edges1 << "\n";
-
   if (num_faces1 != num_faces2) {
-    result.m_ok = false;
-    result.m_criterion = Criterion::NUMBER_OF_FACES;
-    result.m_message = std::to_string(num_faces1) + ", " + std::to_string(num_faces2);
-    return result;
+    results.emplace_back(Criterion::NUMBER_OF_FACES, std::to_string(num_faces1) + ", " + std::to_string(num_faces2));
   }
-  // std::cout << "# of faces: " << num_faces1 << "\n";
+  else if (verbose > 1) results.emplace_back(true, Criterion::NUMBER_OF_FACES, std::to_string(num_faces1));
 
   auto tmesh1 = mesh1;
   using Vector_3 = typename Kernel::Vector_3;
-  auto normals1 = tmesh1.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+  std::optional<Mesh::Property_map<face_descriptor, Vector_3>> optional_map1 = mesh1.property_map<face_descriptor, Vector_3>("f:normals");
+  CGAL_assertion(optional_map1);
+  Mesh::Property_map<face_descriptor, Vector_3> normals1 = *optional_map1;
   triangulate_faces(tmesh1, normals1, params::geom_traits(kernel));
 
   auto tmesh2 = mesh2;
   using Vector_3 = typename Kernel::Vector_3;
-  auto normals2 = tmesh2.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+  std::optional<Mesh::Property_map<face_descriptor, Vector_3>> optional_map2 = mesh2.property_map<face_descriptor, Vector_3>("f:normals");
+  CGAL_assertion(optional_map2);
+  Mesh::Property_map<face_descriptor, Vector_3> normals2 = *optional_map2;
   triangulate_faces(tmesh2, normals2, params::geom_traits(kernel));
 
   // 2. Compare volume and surface area
   auto volume1 = CGAL::to_double(PMP::volume(tmesh1));
   auto volume2 = CGAL::to_double(PMP::volume(tmesh2));
   if (std::abs(volume1 - volume2) > tolerance) {
-    result.m_ok = false;
-    result.m_criterion = Criterion::VOLUME;
-    result.m_message = std::to_string(volume1) + ", " + std::to_string(volume2);
-    return result;
+    results.emplace_back(Criterion::VOLUME, std::to_string(volume1) + ", " + std::to_string(volume2));
   }
-  // std::cout << "Volume: " << std::fixed << volume1 << "\n";
+  else if (verbose > 1) results.emplace_back(true, Criterion::VOLUME, std::to_string(volume1));
 
   // Replace with squared_area() of face
   auto area1 = CGAL::to_double(PMP::area(tmesh1));
   auto area2 = CGAL::to_double(PMP::area(tmesh2));
   if (std::abs(area1 - area2) > tolerance) {
-    result.m_ok = false;
-    result.m_criterion = Criterion::AREA;
-    result.m_message = std::to_string(area1) + ", " + std::to_string(area2);
-    return result;
+    results.emplace_back(Criterion::AREA, std::to_string(area1) + ", " + std::to_string(area2));
   }
-  // std::cout << "Boundary area: " << std::fixed << area1 << "\n";
+  else if (verbose > 1) results.emplace_back(true, Criterion::AREA, std::to_string(area1));
 
   // 3. Compare characteristics (i.e., self-intersection, convexity)
 
   auto self_intersect1 = PMP::does_self_intersect(mesh1);
   auto self_intersect2 = PMP::does_self_intersect(mesh2);
   if (self_intersect1 != self_intersect2) {
-    result.m_ok = false;
-    result.m_criterion = Criterion::SELF_INTERSECTION;
-    result.m_message = std::to_string(self_intersect1) + ", " + std::to_string(self_intersect2);
-    return result;
+    results.emplace_back(Criterion::SELF_INTERSECTION, std::to_string(self_intersect1) + ", " + std::to_string(self_intersect2));
   }
-  // std::cout << "Self intersect: " << self_intersect1 << "\n";
+  else if (verbose > 1) results.emplace_back(true, Criterion::SELF_INTERSECTION, std::to_string(self_intersect1));
 
   auto is_convex1 = CGAL::is_strongly_convex_3(mesh1, kernel);
   auto is_convex2 = CGAL::is_strongly_convex_3(mesh2, kernel);
   if (is_convex1 != is_convex2) {
-    result.m_ok = false;
-    result.m_criterion = Criterion::CONVEXITY;
-    result.m_message = std::to_string(is_convex1) + ", " + std::to_string(is_convex2);
-    return result;
+    results.emplace_back(Criterion::CONVEXITY, std::to_string(is_convex1) + ", " + std::to_string(is_convex2));
   }
-  // std::cout << "Is convex: " << is_convex1 << "\n";
+  else if (verbose > 1) results.emplace_back(true, Criterion::CONVEXITY, std::to_string(is_convex1));
 
   /* Compare the widths (obb sizes)
    */
@@ -226,13 +213,10 @@ Result compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel, doubl
   // boost::isomorphism_map<Mesh, Mesh> isom_map;
   bool isomorphic = boost::vf2_graph_iso(mesh1, mesh2, isomorphism_callback());
   if (! isomorphic) {
-    result.m_ok = false;
-    result.m_criterion = Criterion::ISOMORPHISM;
-    result.m_message.assign("Unknown Information");
-    return result;
+    results.emplace_back(Criterion::ISOMORPHISM, "Unknown Information");
   }
 
-  return result;
+  return results;
 }
 
 //! \brief obtains the default value of the input path
@@ -248,9 +232,11 @@ std::string find_input_file(const po::variables_map& vm, const std::string& file
 //! Main entry
 int main(int argc, char* argv[]) {
   bool do_draw = false;
+  bool do_repair = true;
   std::size_t verbose = 0;
   std::string input_dir = ".";
   double tolerance = 1e-5;
+  bool exhaustive = false;
   std::string fullname1;
   std::string fullname2;
 
@@ -261,6 +247,8 @@ int main(int argc, char* argv[]) {
       ("help,h", "produce help message")
       ("verbose,v", po::value<std::size_t>(&verbose)->implicit_value(1), "set verbosity level (0 = quiet")
       ("draw,d", po::value<bool>(&do_draw)->implicit_value(true), "draw the meshes")
+      ("exhaustive,e", po::value<bool>(&exhaustive)->implicit_value(true), "exhaustive")
+      ("repair,r", po::value<bool>(&do_repair)->implicit_value(true), "repair the meshes")
       ("input-path,i", po::value<Paths>()->composing()->default_value({def_input_path()}), "input path")
       ("tolerance", po::value<double>(&tolerance), "the tolerance when comparing inexact values")
       ("filename1", po::value<std::string>(), "First file name")
@@ -286,13 +274,13 @@ int main(int argc, char* argv[]) {
     }
 
     // Verbosity: show directory being scanned
-    if (verbose >= 1) {
-      std::cout << "Scanning directory: " << input_dir << "\n";
+    if (verbose > 0) {
+      std::cout << "Comparing directory: " << input_dir << "\n";
     }
 
     if (! vm.count("filename1")) {
       // throw ...
-      std::cerr << "Missing first filename \n";
+      std::cout << "Missing first filename \n";
       return 1;
     }
     filename1 = vm["filename1"].as<std::string>();
@@ -304,7 +292,7 @@ int main(int argc, char* argv[]) {
 
     if (! vm.count("filename2")) {
       // throw ...
-      std::cerr << "Error: Missing second filename \n";
+      std::cout << "Error: Missing second filename \n";
       return 1;
     }
     filename2 = vm["filename2"].as<std::string>();
@@ -315,30 +303,30 @@ int main(int argc, char* argv[]) {
     }
   }
   catch (std::exception& e) {
-    std::cerr << "Exception: " << e.what() << "\n";
+    std::cout << "Exception: " << e.what() << "\n";
     return 1;
   }
 
   Kernel kernel;
 
   Mesh mesh1, mesh2;
-  if (! read_mesh(fullname1, mesh1, kernel)) return -1;
-  if (! read_mesh(fullname2, mesh2, kernel)) return -1;
+  if (! read_mesh(fullname1, mesh1, do_repair, kernel)) return -1;
+  if (! read_mesh(fullname2, mesh2, do_repair, kernel)) return -1;
 
   if (mesh1.is_empty()) {
     if (mesh2.is_empty()) {
       std::cout << "Both meshes are empty\n";
       return 0;
     }
-    std::cerr << "Mesh " << fullname1 << " is empty" << "\n";
+    std::cout << "Mesh " << fullname1 << " is empty" << "\n";
     return -1;
   }
   if (mesh2.is_empty()) {
-    std::cerr << "Mesh " << fullname2 << " is empty" << "\n";
+    std::cout << "Mesh " << fullname2 << " is empty" << "\n";
     return -1;
   }
 
-#if defined(CGALEX_WITH_VISUAL)
+#if defined(CGALEX_HAS_VISUAL)
   if (do_draw) {
     CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
     gso.ignore_all_vertices(true);
@@ -373,9 +361,9 @@ int main(int argc, char* argv[]) {
   auto num_ccs2 = PMP::connected_components(mesh2, fccmap2);
   if (num_ccs1 != num_ccs2) {
     std::cout << "Meshes differ in # of components " << num_ccs1 << ", " << num_ccs2 << "\n";
-    return 0;
+    return -1;
   }
-  // std::cout << "# of components: " << num_ccs1 << "\n";
+  if (verbose > 0) std::cout << "# of components: " << num_ccs1 << "\n";
 
   // Split connected components
   std::vector<Mesh> meshes1;
@@ -384,6 +372,22 @@ int main(int argc, char* argv[]) {
   std::vector<Mesh> meshes2;
   meshes2.reserve(num_ccs2);
   PMP::split_connected_components(mesh2, meshes2);
+
+  // Merge coplanar faces
+  using Vector_3 = typename Kernel::Vector_3;
+  auto np = CGAL::parameters::geom_traits(kernel);
+  for (std::size_t i = 0; i < num_ccs1; ++i) {
+    auto& mesh = meshes1[i];
+    auto normals = mesh.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+    PMP::compute_face_normals(mesh, normals, np);
+    merge_coplanar_faces(mesh, normals, np);
+  }
+  for (std::size_t i = 0; i < num_ccs2; ++i) {
+    auto& mesh = meshes2[i];
+    auto normals = mesh.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+    PMP::compute_face_normals(mesh, normals, np);
+    merge_coplanar_faces(mesh, normals, np);
+  }
 
   // Compute polygon soup and sort
   using Points = std::vector<Kernel::Point_3>;
@@ -405,10 +409,9 @@ int main(int argc, char* argv[]) {
   apply_permutation(meshes1, indices1);
 
   std::vector<Points> points_of_meshes2(num_ccs2);
-  std::cout << "Comparing ";
-  bool identical = true;
+  if (verbose == 0) std::cout << "Comparing ";
   for (std::size_t i = 0; i < num_ccs2; ++i) {
-    std::cout << ".";
+    if (verbose == 0) std::cout << ".";
     auto& mesh = meshes2[i];
     PMP::remove_isolated_vertices(mesh);
     points_of_meshes2[i].reserve(mesh.number_of_vertices());
@@ -424,71 +427,100 @@ int main(int argc, char* argv[]) {
   apply_permutation(meshes2, indices2);
 
   // Compare meshes
+  bool identical = true;
+  std::vector<std::vector<Result>> results(num_ccs1);
+
   for (std::size_t i = 0; i < num_ccs1; ++i) {
     const auto& points1 = points_of_meshes1[indices1[i]];
     const auto& points2 = points_of_meshes2[indices2[i]];
     if (points1.size() != points2.size()) {
-      std::cout << " different\n";
-      std::cerr << "Sub meshes " << indices1[i] << " and " << indices2[i] << " differ in number of points "
-                << points1.size() << ", " << points2.size() << "\n";
-      return -1;
+      results[i].emplace_back(Criterion::NUMBER_OF_POINTS, std::to_string(points1.size()) + ", " + std::to_string(points2.size()));
+      identical = false;
+      if (! exhaustive) break;
     }
+    else if (verbose > 0) results[i].emplace_back(true, Criterion::NUMBER_OF_POINTS, std::to_string(points1.size()));
+
     if (points1 != points2) {
-      std::cout << " different\n";
-      for (const auto& p : points1) std::cout << p << " ";
-      std::cerr << std::endl;
-      for (const auto& p : points2) std::cout << p << " ";
-      std::cerr << std::endl;
-      std::cerr << "Sub meshes " << indices1[i] << " and " << indices2[i] << " differ in points\n";
-      return -1;
+      // if (verbose > 2) {
+      //   for (const auto& p : points1) std::cout << p << " ";
+      //   std::cout << std::endl;
+      //   for (const auto& p : points2) std::cout << p << " ";
+      //   std::cout << std::endl;
+      // }
+      results[i].emplace_back(Criterion::POINTS, "");
+      identical = false;
+      if (! exhaustive) break;
     }
+    else if (verbose > 0) results[i].emplace_back(true, Criterion::POINTS, "");
+
     const auto& mesh1 = meshes1[i];
     const auto& mesh2 = meshes2[i];
-    auto res = compare(mesh1, mesh2, kernel, tolerance);
-    if (! res.m_ok) {
-      std::cout << " different\n";
-      std::cerr << "Sub meshes " << i;
+
+    auto cc_results = compare(mesh1, mesh2, kernel, tolerance, verbose);
+    results[i].insert(results[i].end(), cc_results.begin(), cc_results.end());
+    if (! results[i].empty()) {
+      for (const auto& res : results[i]) {
+        if (! res.m_ok) {
+          identical = false;
+          break;
+        }
+      }
+    }
+  }
+  if (verbose == 0) std::cout << " " << ((identical) ? "identical" : "different") << std::endl;
+
+  for (std::size_t i = 0; i < num_ccs1; ++i) {
+    if (results[i].empty()) continue;
+    for (const auto& res : results[i]) {
+      if (num_ccs1 == 1) std::cout << "Meshes";
+      else std::cout << "Sub meshes " << indices1[i] << " and " << indices2[i];
+      if (! res.m_ok) std::cout << " differ in";
       switch (res.m_criterion) {
+       case Criterion::NUMBER_OF_POINTS:
+        std::cout << " number of points: " << res.m_message << std::endl;
+        break;
+
+       case Criterion::POINTS:
+        std::cout << " points: " << res.m_message << std::endl;
+        break;
+
        case Criterion::NUMBER_OF_VERTICES:
-        std::cerr << " differ in number of vertices: " << res.m_message << std::endl;
+        std::cout << " number of vertices: " << res.m_message << std::endl;
         break;
 
        case Criterion::NUMBER_OF_EDGES:
-        std::cerr << " differ in number of edges: " << res.m_message << std::endl;
+        std::cout << " number of edges: " << res.m_message << std::endl;
         break;
 
        case Criterion::NUMBER_OF_FACES:
-        std::cerr << " differ in number of faces: " << res.m_message << std::endl;
+        std::cout << " number of faces: " << res.m_message << std::endl;
         break;
 
        case Criterion::VOLUME:
-        std::cerr << " differ in volume: " << res.m_message << std::endl;
+        std::cout << " volume: " << res.m_message << std::endl;
         break;
 
        case Criterion::AREA:
-        std::cerr << " differ in area: " << res.m_message << std::endl;
+        std::cout << " area: " << res.m_message << std::endl;
         break;
 
        case Criterion::SELF_INTERSECTION:
-        std::cerr << " differ in self intersection: " << res.m_message << std::endl;
+        std::cout << " self intersection: " << res.m_message << std::endl;
         break;
 
        case Criterion::CONVEXITY:
-        std::cerr << "  differ in convexity: " << res.m_message << std::endl;
+        std::cout << " convexity: " << res.m_message << std::endl;
         break;
 
        case Criterion::ISOMORPHISM:
-        std::cerr << " are not isomorphic: " << res.m_message << std::endl;
+        std::cout << " isomorphism: " << res.m_message << std::endl;
         break;
 
        default: break;
       }
-      identical = false;
-      break;
     }
   }
   if (! identical) return -1;
-  std::cout << " identical\n";
 
   /* Use Side_of_triangle_mesh.
    * Use PMP::approximate_Hausdorff_distance and bounded_error_Hausdorff_distance()
