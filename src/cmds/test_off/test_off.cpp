@@ -26,6 +26,7 @@
 #include <CGAL/Polygon_mesh_processing/orientation.h>
 #include <CGAL/Polygon_mesh_processing/remesh_planar_patches.h>
 #include <CGAL/Polygon_mesh_processing/repair_degeneracies.h>
+#include <CGAL/Polygon_mesh_processing/repair.h>
 #include <CGAL/Polygon_mesh_processing/stitch_borders.h>
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 
@@ -141,7 +142,7 @@ int main(int argc, char* argv[]) {
   // PMP::stitch_borders(mesh, params::apply_per_connected_component(true));
   PMP::remove_degenerate_faces(mesh);
   PMP::remove_degenerate_edges(mesh);
-  // CGAL::draw(mesh, gso, filename);
+  PMP::remove_isolated_vertices(mesh);
 
   // General validity
   auto is_valid = mesh.is_valid();
