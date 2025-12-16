@@ -9,8 +9,7 @@
 
 #include <boost/program_options.hpp>
 #include <boost/container/small_vector.hpp>
-#include <boost/graph/isomorphism.hpp>
-#include <boost/graph/vf2_sub_graph_iso.hpp>
+// #include <boost/graph/vf2_sub_graph_iso.hpp>
 
 #include <CGAL/boost/graph/helpers.h>
 #include <CGAL/boost/graph/selection.h>
@@ -72,7 +71,7 @@ void apply_permutation(std::vector<Mesh>& v, std::vector<int> indices) {
 }
 
 //
-bool read_mesh(const std::string& filename, Mesh& mesh, bool do_repair, const Kernel& kernel) {
+bool read_mesh(const std::string& filename, Mesh& mesh, bool do_repair, std::size_t verbose, const Kernel& kernel) {
   // params::verbose(true).repair_polygon_soup(true)
   if (! PMP::IO::read_polygon_mesh(filename, mesh, params::verbose(true).repair_polygon_soup(true))) {
     std::cout << "Error: Cannot read " << filename << "\n";
@@ -95,6 +94,7 @@ bool read_mesh(const std::string& filename, Mesh& mesh, bool do_repair, const Ke
   if (! is_tri) PMP::triangulate_faces(mesh, params::geom_traits(kernel));
 
   if (do_repair) {
+    if (verbose > 0) std::cout << "Repairing\n";
     PMP::remove_degenerate_faces(mesh);
     PMP::remove_degenerate_edges(mesh);
     PMP::remove_isolated_vertices(mesh);
@@ -211,9 +211,44 @@ std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& 
   /* Compare isomorphism
    */
   // boost::isomorphism_map<Mesh, Mesh> isom_map;
+# if 0
   bool isomorphic = boost::vf2_graph_iso(mesh1, mesh2, isomorphism_callback());
   if (! isomorphic) {
     results.emplace_back(Criterion::ISOMORPHISM, "Unknown Information");
+  }
+#endif
+
+  std::vector<std::pair<face_descriptor, face_descriptor>> common;
+  std::vector<face_descriptor> m1_only, m2_only;
+  PMP::match_faces(mesh1, mesh2, std::back_inserter(common), std::back_inserter(m1_only), std::back_inserter(m2_only));
+  if (! m1_only.empty() || ! m2_only.empty()) {
+    results.emplace_back(Criterion::ISOMORPHISM,
+                         std::to_string(m1_only.size()) + " only in 1st, " + std::to_string(m2_only.size()) + " only in 2nd");
+
+    if (verbose > 2) {
+      auto vpm1 = get_const_property_map(boost::vertex_point, tmesh1);
+      auto vpm2 = get_const_property_map(boost::vertex_point, tmesh2);
+      for (auto fd : m1_only) {
+        std::cout << fd << "\n";
+        auto rep_hd = halfedge(fd, tmesh1);
+        for (auto hd : CGAL::halfedges_around_face(rep_hd, tmesh1)) {
+          auto vd = CGAL::target(hd, tmesh1);
+          const auto& p = get(vpm1, vd);
+          std::cout << p << std::endl;
+        }
+        std::cout << std::endl;
+      }
+      for (auto fd : m2_only) {
+        std::cout << fd << "\n";
+        auto rep_hd = halfedge(fd, tmesh2);
+        for (auto hd : CGAL::halfedges_around_face(rep_hd, tmesh2)) {
+          auto vd = CGAL::target(hd, tmesh2);
+          const auto& p = get(vpm2, vd);
+          std::cout << p << std::endl;
+        }
+        std::cout << std::endl;
+      }
+    }
   }
 
   return results;
@@ -310,8 +345,8 @@ int main(int argc, char* argv[]) {
   Kernel kernel;
 
   Mesh mesh1, mesh2;
-  if (! read_mesh(fullname1, mesh1, do_repair, kernel)) return -1;
-  if (! read_mesh(fullname2, mesh2, do_repair, kernel)) return -1;
+  if (! read_mesh(fullname1, mesh1, do_repair, verbose, kernel)) return -1;
+  if (! read_mesh(fullname2, mesh2, do_repair, verbose, kernel)) return -1;
 
   if (mesh1.is_empty()) {
     if (mesh2.is_empty()) {
@@ -438,7 +473,7 @@ int main(int argc, char* argv[]) {
       identical = false;
       if (! exhaustive) break;
     }
-    else if (verbose > 0) results[i].emplace_back(true, Criterion::NUMBER_OF_POINTS, std::to_string(points1.size()));
+    else if (verbose > 1) results[i].emplace_back(true, Criterion::NUMBER_OF_POINTS, std::to_string(points1.size()));
 
     if (points1 != points2) {
       // if (verbose > 2) {
@@ -451,7 +486,7 @@ int main(int argc, char* argv[]) {
       identical = false;
       if (! exhaustive) break;
     }
-    else if (verbose > 0) results[i].emplace_back(true, Criterion::POINTS, "");
+    else if (verbose > 1) results[i].emplace_back(true, Criterion::POINTS, "");
 
     const auto& mesh1 = meshes1[i];
     const auto& mesh2 = meshes2[i];
