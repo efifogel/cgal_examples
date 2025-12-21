@@ -9,7 +9,7 @@
 
 #include <boost/program_options.hpp>
 #include <boost/container/small_vector.hpp>
-// #include <boost/graph/vf2_sub_graph_iso.hpp>
+#include <boost/graph/vf2_sub_graph_iso.hpp>
 
 #include <CGAL/boost/graph/helpers.h>
 #include <CGAL/boost/graph/selection.h>
@@ -39,6 +39,7 @@
 #include "cgalex/merge_coplanar_faces.h"
 #include "cgalex/Paths.h"
 #include "cgalex/triangulate_faces.h"
+#include "cgalex/match_faces.h"
 
 using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
 // using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
@@ -69,8 +70,7 @@ enum class Criterion : int {
   AREA,
   SELF_INTERSECTION,
   CONVEXITY,
-  ISOMORPHISM,
-  OK
+  ISOMORPHISM
 };
 
 // Pass indices by value
@@ -87,16 +87,28 @@ void apply_permutation(std::vector<Mesh>& v, std::vector<int> indices) {
   }
 }
 
+struct Result {
+  bool m_ok = true;
+  Criterion m_criterion;
+  std::string m_message;
+  Result() : m_ok(true) {}
+  Result(Criterion criterion, const std::string& message) : m_ok(false), m_criterion(criterion), m_message(message) {}
+  Result(bool ok, Criterion criterion, const std::string& message) :
+    m_ok(ok), m_criterion(criterion), m_message(message)
+  {}
+  Result(bool ok, Criterion criterion) : m_ok(ok), m_criterion(criterion), m_message("") {}
+};
+
 //
-Criterion read_mesh(const std::string& filename, Mesh& mesh, bool do_repair, std::size_t verbose, const Kernel& kernel) {
+Result read_mesh(const std::string& filename, Mesh& mesh, bool do_repair, std::size_t verbose, const Kernel& kernel) {
   if (! PMP::IO::read_polygon_mesh(filename, mesh, params::verbose(true).repair_polygon_soup(true)))
-    return Criterion::READABLE;
+    return Result(Criterion::READABLE, std::string(filename) + " is not readable");
 
   auto is_valid = mesh.is_valid();
-  if (! is_valid) return Criterion::VALID;
+  if (! is_valid) return Result(Criterion::VALID, std::string(filename) + " is invalid");
 
   auto is_closed = CGAL::is_closed(mesh);
-  if (! is_closed) return Criterion::CLOSED;
+  if (! is_closed) return Result(Criterion::CLOSED, std::string(filename) + " is open");
 
   auto is_tri = CGAL::is_triangle_mesh(mesh);
   if (! is_tri) PMP::triangulate_faces(mesh, params::geom_traits(kernel));
@@ -108,7 +120,7 @@ Criterion read_mesh(const std::string& filename, Mesh& mesh, bool do_repair, std
     PMP::remove_isolated_vertices(mesh);
   }
 
-  return Criterion::OK;
+  return Result();
 }
 
 // Callback used by vf2 to signal success
@@ -118,17 +130,46 @@ struct isomorphism_callback {
   bool operator()(CorrespondenceMap1To2, CorrespondenceMap2To1) { return true; }
 };
 
-struct Result {
-  bool m_ok = true;
-  Criterion m_criterion;
-  std::string m_message;
-  Result() : m_ok(true) {}
-  Result(Criterion criterion, const std::string& message) : m_ok(false), m_criterion(criterion), m_message(message) {}
-  Result(bool ok, Criterion criterion, const std::string& message) : m_ok(ok), m_criterion(criterion), m_message(message) {}
-};
+//
+Result do_faces_match(const Mesh& mesh1, const Mesh& mesh2, std::size_t verbose) {
+  std::vector<std::pair<face_descriptor, face_descriptor>> common;
+  std::vector<face_descriptor> m1_only, m2_only;
+  PMP::my_match_faces(mesh1, mesh2,
+                      std::back_inserter(common), std::back_inserter(m1_only), std::back_inserter(m2_only));
+  if (m1_only.empty() && m2_only.empty()) return Result(true, Criterion::ISOMORPHISM);
+
+  if (verbose > 2) {
+    auto vpm1 = get_const_property_map(boost::vertex_point, mesh1);
+    auto vpm2 = get_const_property_map(boost::vertex_point, mesh2);
+    for (auto fd : m1_only) {
+      std::cout << fd << "\n";
+      auto rep_hd = halfedge(fd, mesh1);
+      for (auto hd : CGAL::halfedges_around_face(rep_hd, mesh1)) {
+        auto vd = CGAL::target(hd, mesh1);
+        const auto& p = get(vpm1, vd);
+        std::cout << p << std::endl;
+      }
+      std::cout << std::endl;
+    }
+    for (auto fd : m2_only) {
+      std::cout << fd << "\n";
+      auto rep_hd = halfedge(fd, mesh2);
+      for (auto hd : CGAL::halfedges_around_face(rep_hd, mesh2)) {
+        auto vd = CGAL::target(hd, mesh2);
+        const auto& p = get(vpm2, vd);
+        std::cout << p << std::endl;
+      }
+      std::cout << std::endl;
+    }
+  }
+
+  return Result(Criterion::ISOMORPHISM,
+                std::to_string(m1_only.size()) + " only in 1st, " + std::to_string(m2_only.size()) + " only in 2nd");
+}
 
 //
-std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& kernel, double tolerance, std::size_t verbose) {
+std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, double tolerance, std::size_t verbose,
+                            const Kernel& kernel) {
   std::vector<Result> results;
 
   // 1. Compare number of features.
@@ -160,6 +201,7 @@ std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& 
   CGAL_assertion(optional_map1);
   Mesh::Property_map<face_descriptor, Vector_3> normals1 = *optional_map1;
   triangulate_faces(tmesh1, normals1, params::geom_traits(kernel));
+  CGAL::IO::write_polygon_mesh("m1.off", mesh1, CGAL::parameters::stream_precision(17));
 
   auto tmesh2 = mesh2;
   using Vector_3 = typename Kernel::Vector_3;
@@ -167,6 +209,7 @@ std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& 
   CGAL_assertion(optional_map2);
   Mesh::Property_map<face_descriptor, Vector_3> normals2 = *optional_map2;
   triangulate_faces(tmesh2, normals2, params::geom_traits(kernel));
+  CGAL::IO::write_polygon_mesh("m2.off", mesh2, CGAL::parameters::stream_precision(17));
 
   // 2. Compare volume and surface area
   auto volume1 = CGAL::to_double(PMP::volume(tmesh1));
@@ -203,48 +246,31 @@ std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, const Kernel& 
   /* Compare the widths (obb sizes)
    */
 
+#if 0
+  // Comparing isomorphism is disabled at this point.
   /* Compare isomorphism
    */
   // boost::isomorphism_map<Mesh, Mesh> isom_map;
-# if 0
   bool isomorphic = boost::vf2_graph_iso(mesh1, mesh2, isomorphism_callback());
-  if (! isomorphic) {
-    results.emplace_back(Criterion::ISOMORPHISM, "Unknown Information");
+  if (isomorphic) {
+    if (verbose > 1) results.emplace_back(true, Criterion::ISOMORPHISM);
   }
-#endif
-
-  std::vector<std::pair<face_descriptor, face_descriptor>> common;
-  std::vector<face_descriptor> m1_only, m2_only;
-  PMP::match_faces(mesh1, mesh2, std::back_inserter(common), std::back_inserter(m1_only), std::back_inserter(m2_only));
-  if (! m1_only.empty() || ! m2_only.empty()) {
-    results.emplace_back(Criterion::ISOMORPHISM,
-                         std::to_string(m1_only.size()) + " only in 1st, " + std::to_string(m2_only.size()) + " only in 2nd");
-
-    if (verbose > 2) {
-      auto vpm1 = get_const_property_map(boost::vertex_point, tmesh1);
-      auto vpm2 = get_const_property_map(boost::vertex_point, tmesh2);
-      for (auto fd : m1_only) {
-        std::cout << fd << "\n";
-        auto rep_hd = halfedge(fd, tmesh1);
-        for (auto hd : CGAL::halfedges_around_face(rep_hd, tmesh1)) {
-          auto vd = CGAL::target(hd, tmesh1);
-          const auto& p = get(vpm1, vd);
-          std::cout << p << std::endl;
-        }
-        std::cout << std::endl;
+  else {
+    auto faces_match = do_faces_match(mesh1, mesh2, verbose);
+    if (faces_match.m_ok) {
+      if (verbose > 1) results.emplace_back(true, Criterion::ISOMORPHISM);
+    }
+    else {
+      auto faces_match = do_faces_match(tmesh1, tmesh2, verbose);
+      if (faces_match.m_ok) {
+        if (verbose > 1) results.emplace_back(true, Criterion::ISOMORPHISM);
       }
-      for (auto fd : m2_only) {
-        std::cout << fd << "\n";
-        auto rep_hd = halfedge(fd, tmesh2);
-        for (auto hd : CGAL::halfedges_around_face(rep_hd, tmesh2)) {
-          auto vd = CGAL::target(hd, tmesh2);
-          const auto& p = get(vpm2, vd);
-          std::cout << p << std::endl;
-        }
-        std::cout << std::endl;
+      else {
+        results.emplace_back(faces_match);
       }
     }
   }
+#endif
 
   return results;
 }
@@ -339,34 +365,27 @@ int main(int argc, char* argv[]) {
 
   Kernel kernel;
   Mesh mesh1, mesh2;
-  auto rc1 = read_mesh(fullname1, mesh1, do_repair, verbose, kernel);
-  auto rc2 = read_mesh(fullname2, mesh2, do_repair, verbose, kernel);
-  if ((rc1 != Criterion::OK) || (rc2 != Criterion::OK)) {
-    switch (rc1) {
-      case Criterion::READABLE:
-       switch (rc2) {
-        case Criterion::READABLE: std::cout << "Both meshes are not readable\n"; break;
-        case Criterion::VALID:
-        case Criterion::CLOSED: std::cout << "Mesh " << fullname1 << " is not readable\n"; break;
-       }
-       return -1;
-
-     case Criterion::VALID:
-       switch (rc2) {
-        case Criterion::READABLE: std::cout << "Mesh " << fullname2 << " is not readable\n"; break;
-        case Criterion::VALID: std::cout << "Both meshes are invalid\n"; break;
-        case Criterion::CLOSED: std::cout << "Mesh " << fullname1 << " is invalid\n"; break;
-       }
-       return -1;
-
-     case Criterion::CLOSED:
-       switch (rc2) {
-        case Criterion::READABLE: std::cout << "Mesh " << fullname2 << " is not readable"; break;
-        case Criterion::VALID: std::cout << "Mesh " << fullname2 << " is invalid\n"; break;
-        case Criterion::CLOSED: std::cout << "Both meshes are open\n"; break;
-       }
-       return -1;
+  auto res1 = read_mesh(fullname1, mesh1, do_repair, verbose, kernel);
+  auto res2 = read_mesh(fullname2, mesh2, do_repair, verbose, kernel);
+  if (! res1.m_ok) {
+    switch (res1.m_criterion) {
+     case Criterion::READABLE: std::cout << res1.m_message << std::endl; break;
+     case Criterion::VALID: std::cout << res1.m_message << std::endl; break;
+     case Criterion::CLOSED: std::cout << res1.m_message << std::endl; break;
+     default: CGAL_error(); return -1;
     }
+  }
+  if (! res2.m_ok) {
+    switch (res1.m_criterion) {
+     case Criterion::READABLE: std::cout << res2.m_message << std::endl; break;
+     case Criterion::VALID: std::cout << res2.m_message << std::endl; break;
+     case Criterion::CLOSED: std::cout << res2.m_message << std::endl; break;
+     default: CGAL_error(); return -1;
+    }
+  }
+  if (! res1.m_ok || ! res2.m_ok) {
+    if (res1.m_criterion == res2.m_criterion) return 0;
+    return -1;
   }
 
   if (mesh1.is_empty()) {
@@ -452,6 +471,7 @@ int main(int argc, char* argv[]) {
   for (std::size_t i = 0; i < num_ccs1; ++i) {
     auto& mesh = meshes1[i];
     PMP::remove_isolated_vertices(mesh);
+    mesh.collect_garbage();
     points_of_meshes1[i].reserve(mesh.number_of_vertices());
     for (const auto& p : mesh.points()) points_of_meshes1[i].push_back(p);
     std::sort(points_of_meshes1[i].begin(), points_of_meshes1[i].end());
@@ -462,16 +482,12 @@ int main(int argc, char* argv[]) {
   apply_permutation(meshes1, indices1);
 
   std::vector<Points> points_of_meshes2(num_ccs2);
-  if (verbose == 0) std::cout << "Comparing ";
   for (std::size_t i = 0; i < num_ccs2; ++i) {
-    if (verbose == 0) std::cout << ".";
     auto& mesh = meshes2[i];
     PMP::remove_isolated_vertices(mesh);
+    mesh.collect_garbage();
     points_of_meshes2[i].reserve(mesh.number_of_vertices());
-    for (const auto& p : mesh.points()) {
-      points_of_meshes2[i].push_back(p);
-    }
-    // std::cout << std::endl;
+    for (const auto& p : mesh.points()) points_of_meshes2[i].push_back(p);
     std::sort(points_of_meshes2[i].begin(), points_of_meshes2[i].end());
   }
   std::vector<int> indices2(num_ccs2);
@@ -483,7 +499,9 @@ int main(int argc, char* argv[]) {
   bool identical = true;
   std::vector<std::vector<Result>> results(num_ccs1);
 
+  if (verbose == 0) std::cout << "Comparing ";
   for (std::size_t i = 0; i < num_ccs1; ++i) {
+    if (verbose == 0) std::cout << ".";
     const auto& points1 = points_of_meshes1[indices1[i]];
     const auto& points2 = points_of_meshes2[indices2[i]];
     if (points1.size() != points2.size()) {
@@ -494,12 +512,12 @@ int main(int argc, char* argv[]) {
     else if (verbose > 1) results[i].emplace_back(true, Criterion::NUMBER_OF_POINTS, std::to_string(points1.size()));
 
     if (points1 != points2) {
-      // if (verbose > 2) {
-      //   for (const auto& p : points1) std::cout << p << " ";
-      //   std::cout << std::endl;
-      //   for (const auto& p : points2) std::cout << p << " ";
-      //   std::cout << std::endl;
-      // }
+      if (verbose > 2) {
+        for (const auto& p : points1) std::cout << p << " ";
+        std::cout << std::endl;
+        for (const auto& p : points2) std::cout << p << " ";
+        std::cout << std::endl;
+      }
       results[i].emplace_back(Criterion::POINTS, "");
       identical = false;
       if (! exhaustive) break;
@@ -509,7 +527,7 @@ int main(int argc, char* argv[]) {
     const auto& mesh1 = meshes1[i];
     const auto& mesh2 = meshes2[i];
 
-    auto cc_results = compare(mesh1, mesh2, kernel, tolerance, verbose);
+    auto cc_results = compare(mesh1, mesh2, tolerance, verbose, kernel);
     results[i].insert(results[i].end(), cc_results.begin(), cc_results.end());
     if (! results[i].empty()) {
       for (const auto& res : results[i]) {
