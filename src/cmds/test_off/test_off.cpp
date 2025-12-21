@@ -3,6 +3,8 @@
 #include <vector>
 #include <list>
 
+#include <boost/program_options.hpp>
+
 #define USE_SURFACE_MESH
 
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
@@ -34,10 +36,25 @@
 #include "Extended_polyhedron_items.h"
 #endif
 
+#include "cgalex/find_file_fullname.h"
+#include "cgalex/io_paths.h"
+#include "cgalex/Paths.h"
 #include "cgalex/retriangulate_faces.h"
 
+namespace po = boost::program_options;
+namespace fs = std::filesystem;
 namespace PMP = CGAL::Polygon_mesh_processing;
 namespace params = CGAL::parameters;
+
+//! \brief obtains the default value of the input path
+const Path def_input_path() {
+  static const Path s_def_input_path(".");
+  return s_def_input_path;
+}
+
+//! \brief finds the input file.
+std::string find_input_file(const po::variables_map& vm, const std::string& filename)
+{ return find_file_fullname(vm["input-path"].as<Paths>(), filename); }
 
 int main(int argc, char* argv[]) {
   using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
@@ -56,7 +73,63 @@ int main(int argc, char* argv[]) {
   using edge_descriptor = boost::graph_traits<Mesh>::edge_descriptor;
   using face_descriptor = boost::graph_traits<Mesh>::face_descriptor;
 
-  const char* filename = (argc > 1) ? argv[1] : "cube.off";
+  bool do_draw = false;
+  bool do_repair = true;
+  std::size_t verbose = 0;
+  std::string input_dir = ".";
+  std::string fullname;
+
+  try {
+    // Define options
+    po::options_description desc("Allowed options");
+    desc.add_options()
+      ("help,h", "produce help message")
+      ("verbose,v", po::value<std::size_t>(&verbose)->implicit_value(1), "set verbosity level (0 = quiet")
+      ("draw,d", po::value<bool>(&do_draw)->implicit_value(true), "draw the meshes")
+      ("repair,r", po::value<bool>(&do_repair)->implicit_value(true), "repair the meshes")
+      ("input-path,i", po::value<Paths>()->composing()->default_value({def_input_path()}), "input path")
+      ("filename", po::value<std::string>(), "First file name")
+    ;
+
+    po::positional_options_description p;
+    std::string filename;
+    p.add("filename", 1);
+
+    // Parse options
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::store(po::command_line_parser(argc, argv).options(desc).positional(p).run(), vm);
+    po::notify(vm);
+
+    // Help
+    if (vm.count("help")) {
+      std::cout << desc << "\n";
+      return 0;
+    }
+
+    // Verbosity: show directory being scanned
+    if (verbose > 0) {
+      std::cout << "Searching directory: " << input_dir << "\n";
+    }
+
+    if (! vm.count("filename")) {
+      // throw ...
+      std::cout << "Missing first filename \n";
+      return 1;
+    }
+    filename = vm["filename"].as<std::string>();
+    fullname = find_input_file(vm, filename);
+    if (fullname.empty()) {
+      throw std::logic_error(std::string("Error: Cannot find file ").append(filename));
+      return 1;
+    }
+  }
+  catch (std::exception& e) {
+    std::cout << "Exception: " << e.what() << "\n";
+    return 1;
+  }
+
+  // const char* filename = (argc > 1) ? argv[1] : "cube.off";
   // std::cout << filename << std::endl;
   Mesh mesh;
 
@@ -64,10 +137,11 @@ int main(int argc, char* argv[]) {
   Face_color_map fcolors;
 
 #if defined(USE_SURFACE_MESH)
-  if (! CGAL::IO::read_polygon_mesh(filename, mesh, params::verbose(true).repair_polygon_soup(true))) {
-    std::cerr << "Error: could not read mesh from '" << filename << "'.\n";
+  if (! PMP::IO::read_polygon_mesh(fullname, mesh, params::verbose(true).repair_polygon_soup(true))) {
+    std::cerr << "Error: could not read mesh from '" << fullname << "'.\n";
     return 1;
   }
+  CGAL::IO::write_polygon_mesh("m2.off", mesh, CGAL::parameters::stream_precision(17));
 
   auto face_property_maps = mesh.properties<face_descriptor>();
   // for (const auto& pm : face_property_maps) std::cout << pm << std::endl;
@@ -138,11 +212,16 @@ int main(int argc, char* argv[]) {
 
   Kernel kernel;
 
-  // Repair
-  // PMP::stitch_borders(mesh, params::apply_per_connected_component(true));
-  PMP::remove_degenerate_faces(mesh);
-  PMP::remove_degenerate_edges(mesh);
-  PMP::remove_isolated_vertices(mesh);
+  // // Repair
+  PMP::stitch_borders(mesh, params::apply_per_connected_component(true));
+  auto num_isolated_vertices = PMP::remove_isolated_vertices(mesh);
+  if (num_isolated_vertices > 0) std::cout << "Removed " << num_isolated_vertices << " isolated vertices\n";
+
+  // Must be triangular
+  auto no_degenerate_faces = PMP::remove_degenerate_faces(mesh);
+  std::cout << "no_degenerate_faces " << no_degenerate_faces << "\n";
+  auto no_degenerate_edges = PMP::remove_degenerate_edges(mesh);
+  std::cout << "no_degenerate_edges " << no_degenerate_edges << "\n";
 
   // General validity
   auto is_valid = mesh.is_valid();
@@ -158,6 +237,9 @@ int main(int argc, char* argv[]) {
     std::cout << "Cycle: " << std::endl;
     for (const auto& cycle : border_cycles) std::cout << cycle << std::endl;
   }
+
+  auto bounds_a_volume = PMP::does_bound_a_volume(mesh);
+  if (! bounds_a_volume) std::cerr << "The mesh dous not bound a volume\n";
 
   // Does self intersect
   auto self_intersect = PMP::does_self_intersect(mesh);
@@ -244,13 +326,17 @@ int main(int argc, char* argv[]) {
 #if defined(USE_SURFACE_MESH)
   auto fccmap = mesh.add_property_map<face_descriptor, std::size_t>("f:CC").first;
   std::size_t num_ccs = PMP::connected_components(mesh, fccmap);
-  std::cout << "Number of connected components: " << num_ccs << "\n";
+  if (verbose > 0) {
+    std::cout << "Number of connected components: " << num_ccs << "\n";
+    std::cout << "Number of vertices: " << mesh.number_of_vertices() << "\n";
+    std::cout << "Number of edges: " << mesh.number_of_edges() << "\n";
+    std::cout << "Number of faces: " << mesh.number_of_faces() << "\n";
+  }
 
   // Does bound a volume
   if (is_closed && is_tri) {
     std::vector<bool> isoo(num_ccs);
-    bool bound_volume =
-      PMP::does_bound_a_volume(mesh, params::is_cc_outward_oriented(std::reference_wrapper(isoo)));
+    bool bound_volume = PMP::does_bound_a_volume(mesh, params::is_cc_outward_oriented(std::reference_wrapper(isoo)));
     if (! bound_volume) std::cerr << "The mesh does not bound a volume\n";
     for (auto ccid = 0; ccid < num_ccs; ++ccid)
       if (! isoo[ccid]) std::cerr << "Component " << ccid << " is not outward oriented\n";
