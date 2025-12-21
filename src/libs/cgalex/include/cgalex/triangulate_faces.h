@@ -13,9 +13,6 @@
 #include <CGAL/Projection_traits_3.h>
 #include <CGAL/Named_function_parameters.h>
 #include <CGAL/Triangulation_data_structure_2.h>
-#include <CGAL/Union_find.h>
-
-#include "cgalex/merge_coplanar_faces.h"
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 namespace params = CGAL::parameters;
