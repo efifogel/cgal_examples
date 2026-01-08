@@ -221,7 +221,7 @@ int main(int argc, char* argv[]) {
 
   auto start = std::chrono::high_resolution_clock::now();
 
-#if 0
+#if 1
   try {
     if (corefine) {
       std::array<std::optional<Mesh*>, 4> results = {};
@@ -275,6 +275,7 @@ int main(int argc, char* argv[]) {
         break;
 
        case PMP::Corefinement::TM1_MINUS_TM2:
+        std::cout << "XXXXXXXX\n";
         valid_result = PMP::corefine_and_compute_difference(mesh1, mesh2, result,
                                                             params::visitor(visitor).throw_on_self_intersection(true));
         break;

@@ -99,8 +99,8 @@ struct Result {
   Result(bool ok, Criterion criterion) : m_ok(ok), m_criterion(criterion), m_message("") {}
 };
 
-//
-Result read_mesh(const std::string& filename, Mesh& mesh, bool do_repair, std::size_t verbose, const Kernel& kernel) {
+//!
+Result read_mesh(const std::string& filename, Mesh& mesh, std::size_t verbose, const Kernel& kernel) {
   if (! PMP::IO::read_polygon_mesh(filename, mesh, params::verbose(true).repair_polygon_soup(true)))
     return Result(Criterion::READABLE, std::string(filename) + " is not readable");
 
@@ -113,14 +113,14 @@ Result read_mesh(const std::string& filename, Mesh& mesh, bool do_repair, std::s
   auto is_tri = CGAL::is_triangle_mesh(mesh);
   if (! is_tri) PMP::triangulate_faces(mesh, params::geom_traits(kernel));
 
-  if (do_repair) {
-    if (verbose > 0) std::cout << "Repairing\n";
-    PMP::remove_degenerate_faces(mesh);
-    PMP::remove_degenerate_edges(mesh);
-    PMP::remove_isolated_vertices(mesh);
-  }
-
   return Result();
+}
+
+//!
+void repair_mesh(Mesh& mesh) {
+  PMP::remove_degenerate_faces(mesh);
+  PMP::remove_degenerate_edges(mesh);
+  PMP::remove_isolated_vertices(mesh);
 }
 
 // Callback used by vf2 to signal success
@@ -365,8 +365,8 @@ int main(int argc, char* argv[]) {
 
   Kernel kernel;
   Mesh mesh1, mesh2;
-  auto res1 = read_mesh(fullname1, mesh1, do_repair, verbose, kernel);
-  auto res2 = read_mesh(fullname2, mesh2, do_repair, verbose, kernel);
+  auto res1 = read_mesh(fullname1, mesh1, verbose, kernel);
+  auto res2 = read_mesh(fullname2, mesh2, verbose, kernel);
   if (! res1.m_ok) {
     switch (res1.m_criterion) {
      case Criterion::READABLE: std::cout << res1.m_message << std::endl; break;
@@ -376,7 +376,7 @@ int main(int argc, char* argv[]) {
     }
   }
   if (! res2.m_ok) {
-    switch (res1.m_criterion) {
+    switch (res2.m_criterion) {
      case Criterion::READABLE: std::cout << res2.m_message << std::endl; break;
      case Criterion::VALID: std::cout << res2.m_message << std::endl; break;
      case Criterion::CLOSED: std::cout << res2.m_message << std::endl; break;
@@ -399,6 +399,12 @@ int main(int argc, char* argv[]) {
   if (mesh2.is_empty()) {
     std::cout << "Mesh " << fullname2 << " is empty" << "\n";
     return -1;
+  }
+
+  if (do_repair) {
+    if (verbose > 0) std::cout << "Repairing\n";
+    repair_mesh(mesh1);
+    repair_mesh(mesh2);
   }
 
 #if defined(CGALEX_HAS_VISUAL)
