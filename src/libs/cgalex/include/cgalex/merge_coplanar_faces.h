@@ -8,10 +8,11 @@
 
 #include <CGAL/Union_find.h>
 
+/*!
+ */
 template <typename FaceDescriptor, typename HandleMap>
 typename CGAL::Union_find<FaceDescriptor>::handle
-uf_get_handle(FaceDescriptor f, CGAL::Union_find<FaceDescriptor>& uf_faces,
-              HandleMap& handles) {
+uf_get_handle(FaceDescriptor f, CGAL::Union_find<FaceDescriptor>& uf_faces, HandleMap& handles) {
   using Face_descriptor = FaceDescriptor;
   using Uf_faces = CGAL::Union_find<Face_descriptor>;
   using Uf_handle = typename Uf_faces::handle;
@@ -21,6 +22,8 @@ uf_get_handle(FaceDescriptor f, CGAL::Union_find<FaceDescriptor>& uf_faces,
   return insert_res.first->second;
 }
 
+/*!
+ */
 template <typename FaceDescriptor, typename HandleMap>
 bool uf_join_faces(FaceDescriptor f1, FaceDescriptor f2,
                    CGAL::Union_find<FaceDescriptor>& uf_faces,

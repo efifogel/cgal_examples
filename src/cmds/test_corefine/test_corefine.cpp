@@ -34,7 +34,13 @@
 
 #include "CGAL/boolean_operations_3.h"
 
+#include "cgalex/corefine_difference.h"
+#include "cgalex/corefine_intersection.h"
+#include "cgalex/corefine_union.h"
 #include "cgalex/retriangulate_faces.h"
+#include "cgalex/soup_difference.h"
+#include "cgalex/soup_intersection.h"
+#include "cgalex/soup_union.h"
 
 #ifdef CGAL_LINKED_WITH_TBB
 using Concurrency_tag = CGAL::Parallel_tag;
@@ -211,175 +217,82 @@ int main(int argc, char* argv[]) {
   CGAL::draw_graphics_scene(scene);
 #endif
 
-  // create a property on edges to indicate whether they are constrained
-  Mesh::Property_map<edge_descriptor,bool> is_constrained_map =
-    mesh1.add_property_map<edge_descriptor,bool>("e:is_constrained", false).first;
-
-  PMP::Corefinement::Non_manifold_output_visitor<Mesh> visitor(mesh1, mesh2);
-  Mesh result;
-  bool valid_result;
-
   auto start = std::chrono::high_resolution_clock::now();
 
+  Mesh result;
+
 #if 1
-  try {
-    if (corefine) {
-      std::array<std::optional<Mesh*>, 4> results = {};
-      std::array<bool, 4> valid_results;
-      switch (op) {
-       case PMP::Corefinement::UNION:
-        results[PMP::Corefinement::UNION] = &result;
-        valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::throw_on_self_intersection(true).
-                                                                     visitor(visitor),
-                                                                     params::throw_on_self_intersection(true));
-        break;
+  if (corefine) {
+    PMP::Corefinement::Non_manifold_output_visitor<Mesh> visitor(mesh1, mesh2);
+    bool valid_result;
 
-       case PMP::Corefinement::INTERSECTION:
-        results[PMP::Corefinement::INTERSECTION] = &result;
-        valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::throw_on_self_intersection(true).
-                                                                     visitor(visitor),
-                                                                     params::throw_on_self_intersection(true));
-        break;
-
-       case PMP::Corefinement::TM1_MINUS_TM2:
-        results[PMP::Corefinement::TM1_MINUS_TM2] = &result;
-        valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::throw_on_self_intersection(true).
-                                                                     visitor(visitor),
-                                                                     params::throw_on_self_intersection(true));
-        break;
-
-       case PMP::Corefinement::TM2_MINUS_TM1:
-        results[PMP::Corefinement::TM2_MINUS_TM1] = &result;
-        valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
-                                                                     params::throw_on_self_intersection(true).
-                                                                     visitor(visitor),
-                                                                     params::throw_on_self_intersection(true));
-        break;
-      }
+    std::array<std::optional<Mesh*>, 4> results = {};
+    std::array<bool, 4> valid_results;
+    switch (op) {
+     case PMP::Corefinement::UNION: results[PMP::Corefinement::UNION] = &result; break;
+     case PMP::Corefinement::INTERSECTION: results[PMP::Corefinement::INTERSECTION] = &result; break;
+     case PMP::Corefinement::TM1_MINUS_TM2: results[PMP::Corefinement::TM1_MINUS_TM2] = &result; break;
+     case PMP::Corefinement::TM2_MINUS_TM1: results[PMP::Corefinement::TM2_MINUS_TM1] = &result; break;
+    }
+    try {
+      valid_results = PMP::corefine_and_compute_boolean_operations(mesh1, mesh2, results,
+                                                                   params::throw_on_self_intersection(true).
+                                                                   visitor(visitor),
+                                                                   params::throw_on_self_intersection(true));
 
       valid_result = valid_results[op];
+      if (valid_result) {
+        std::cout << "Operation " << op << " was successfully computed\n";
+        auto self_intersect = PMP::duplicate_non_manifold_vertices(result);
+        if (self_intersect) {
+          std::cout << "The output self intersect as a result of duplicating non-manifold vertices\n";
+        }
+      }
+      else {
+        std::cout << "Operation " << op << " failed; resorting to handling a non-manifild result\n";
+        std::vector<Kernel::Point_3> points;
+        std::vector<std::array<std::size_t, 3>> polygons;
+
+        switch (op) {
+         case PMP::Corefinement::UNION: visitor.extract_union(points, polygons); break;
+         case PMP::Corefinement::INTERSECTION: visitor.extract_intersection(points, polygons); break;
+         case PMP::Corefinement::TM1_MINUS_TM2: visitor.extract_tm1_minus_tm2(points, polygons); break;
+         case PMP::Corefinement::TM2_MINUS_TM1: visitor.extract_tm2_minus_tm1(points, polygons); break;
+        }
+
+        // CGAL::IO::write_polygon_soup("inter_soup.off", points, polygons, CGAL::parameters::stream_precision(17));
+        // make the soup topologically manifold (but geometrically self-intersecting)
+        PMP::orient_polygon_soup(points, polygons);
+        // fill a mesh with the intersection
+        PMP::polygon_soup_to_polygon_mesh(points, polygons, result);
+        PMP::stitch_borders(result, params::apply_per_connected_component(true));
+      }
     }
-    else {
+    catch (const PMP::Corefinement::Self_intersection_exception& e) {
+      std::cout << "Caught an exception: " << e.what() << std::endl;
       switch (op) {
-       case PMP::Corefinement::UNION:
-        valid_result = PMP::corefine_and_compute_union(mesh1, mesh2, result,
-                                                       params::visitor(visitor).throw_on_self_intersection(true));
-        break;
-
-       case PMP::Corefinement::INTERSECTION:
-        valid_result = PMP::corefine_and_compute_intersection(mesh1, mesh2, result,
-                                                              params::visitor(visitor).throw_on_self_intersection(true));
-        break;
-
-       case PMP::Corefinement::TM1_MINUS_TM2:
-        valid_result = PMP::corefine_and_compute_difference(mesh1, mesh2, result,
-                                                            params::visitor(visitor).throw_on_self_intersection(true));
-        break;
-
-       case PMP::Corefinement::TM2_MINUS_TM1:
-        valid_result = PMP::corefine_and_compute_difference(mesh2, mesh1, result,
-                                                            params::visitor(visitor).throw_on_self_intersection(true));
-        break;
+       case PMP::Corefinement::UNION: soup_union(mesh1, mesh2, result); break;
+       case PMP::Corefinement::INTERSECTION: soup_intersection(mesh1, mesh2, result); break;
+       case PMP::Corefinement::TM1_MINUS_TM2: soup_difference(mesh1, mesh2, result); break;
+       case PMP::Corefinement::TM2_MINUS_TM1: soup_difference(mesh1, mesh1, result); break;
       }
-    }
-
-    if (valid_result) {
-      std::cout << "Operation " << op << " was successfully computed\n";
-      auto self_intersect = PMP::duplicate_non_manifold_vertices(result);
-      if (self_intersect) {
-        std::cout << "The output self intersect as a result of duplicating non-manifold vertices\n";
-      }
-    }
-    else {
-      std::cout << "Operation " << op << " failed; resorting to handling a non-manifild result\n";
-      std::vector<Kernel::Point_3> points;
-      std::vector<std::array<std::size_t, 3>> polygons;
-
-      switch (op) {
-       case PMP::Corefinement::UNION:
-        visitor.extract_union(points, polygons);
-        break;
-
-       case PMP::Corefinement::INTERSECTION:
-        visitor.extract_intersection(points, polygons);
-        break;
-
-       case PMP::Corefinement::TM1_MINUS_TM2:
-        visitor.extract_tm1_minus_tm2(points, polygons);
-        break;
-
-       case PMP::Corefinement::TM2_MINUS_TM1:
-        visitor.extract_tm2_minus_tm1(points, polygons);
-        break;
-      }
-
-      // CGAL::IO::write_polygon_soup("inter_soup.off", points, polygons, CGAL::parameters::stream_precision(17));
-      // make the soup topologically manifold (but geometrically self-intersecting)
-      PMP::orient_polygon_soup(points, polygons);
-      // fill a mesh with the intersection
-      PMP::polygon_soup_to_polygon_mesh(points, polygons, result);
-      PMP::stitch_borders(result, params::apply_per_connected_component(true));
     }
   }
-  catch (const PMP::Corefinement::Self_intersection_exception& e) {
-    std::cout << "Caught an exception: " << e.what() << std::endl;
-    std::vector<Kernel::Point_3> points1, points2, points;
-    std::vector<Triangle> triangles1, triangles2, triangles;
-    PMP::polygon_mesh_to_polygon_soup(mesh1, points1, triangles1);
-    PMP::polygon_mesh_to_polygon_soup(mesh2, points2, triangles2);
-
+  else {
     switch (op) {
-     case PMP::Corefinement::UNION:
-      CGAL::compute_union<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
-      break;
-
-     case PMP::Corefinement::INTERSECTION:
-      CGAL::compute_intersection<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
-      break;
-
-     case PMP::Corefinement::TM1_MINUS_TM2:
-      CGAL::compute_difference<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
-      break;
-
-     case PMP::Corefinement::TM2_MINUS_TM1:
-      CGAL::compute_difference<Concurrency_tag>(points2, triangles2, points1, triangles1, points, triangles);
-      break;
+     case PMP::Corefinement::UNION: corefine_union(mesh1, mesh2, result); break;
+     case PMP::Corefinement::INTERSECTION: corefine_intersection(mesh1, mesh2, result); break;
+     case PMP::Corefinement::TM1_MINUS_TM2: corefine_difference(mesh1, mesh2, result); break;
+     case PMP::Corefinement::TM2_MINUS_TM1: corefine_difference(mesh1, mesh1, result); break;
     }
-
-    PMP::orient_polygon_soup(points, triangles);
-    PMP::polygon_soup_to_polygon_mesh(points, triangles, result);
-    PMP::stitch_borders(result, params::apply_per_connected_component(true));
   }
 #else
-  std::vector<Kernel::Point_3> points1, points2, points;
-  std::vector<Triangle> triangles1, triangles2, triangles;
-  PMP::polygon_mesh_to_polygon_soup(mesh1, points1, triangles1);
-  PMP::polygon_mesh_to_polygon_soup(mesh2, points2, triangles2);
-
   switch (op) {
-   case PMP::Corefinement::UNION:
-    CGAL::compute_union<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
-    break;
-
-   case PMP::Corefinement::INTERSECTION:
-    CGAL::compute_intersection<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
-    break;
-
-   case PMP::Corefinement::TM1_MINUS_TM2:
-    CGAL::compute_difference<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
-    break;
-
-   case PMP::Corefinement::TM2_MINUS_TM1:
-    CGAL::compute_difference<Concurrency_tag>(points2, triangles2, points1, triangles1, points, triangles);
-    break;
+   case PMP::Corefinement::UNION: soup_union(mesh1, mesh2, result); break;
+   case PMP::Corefinement::INTERSECTION: soup_intersection(mesh1, mesh2, result); break;
+   case PMP::Corefinement::TM1_MINUS_TM2: soup_difference(mesh1, mesh2, result); break;
+   case PMP::Corefinement::TM2_MINUS_TM1: soup_difference(mesh1, mesh1, result); break;
   }
-
-  PMP::orient_polygon_soup(points, triangles);
-  PMP::polygon_soup_to_polygon_mesh(points, triangles, result);
-  PMP::stitch_borders(result, params::apply_per_connected_component(true));
 #endif
 
   auto diff = std::chrono::high_resolution_clock::now() - start;

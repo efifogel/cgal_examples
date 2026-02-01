@@ -1,5 +1,5 @@
-#ifndef CGALEX_PATHS_HPP
-#define CGALEX_PATHS_HPP
+#ifndef CGALEX_PATHS_H
+#define CGALEX_PATHS_H
 
 #include <vector>
 
@@ -7,8 +7,8 @@
 
 // CGALEX_BEGIN_NAMESPACE
 
-typedef boost::filesystem::path Path;
-typedef std::vector<Path>       Paths;
+using Path = boost::filesystem::path;
+using Paths = std::vector<Path>;
 
 // CGALEX_END_NAMESPACE
 
