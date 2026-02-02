@@ -269,7 +269,7 @@ void contract_mesh(Mesh_& bbox_pos, Mesh_& mesh, const Arrangement_& cube_gm, Me
 #endif
   CGAL::Polygon_mesh_processing::compute_face_normals(complement, complement_normals, np);
   merge_coplanar_faces(complement, complement_normals, np);
-  retriangulate_faces(complement, complement_normals);
+  triangulate_faces(complement, complement_normals);
   CGAL::draw(complement, "Complement");
 
   // Polyhedral_mesh complement;
@@ -307,7 +307,7 @@ void triangulate(Mesh_& mesh, const Kernel_& kernel) {
   Face_normal_map<Mesh> normals;
   CGAL::Polygon_mesh_processing::compute_face_normals(mesh, normals, np);
   merge_coplanar_faces(mesh, normals, np);
-  retriangulate_faces(mesh, normals);
+  triangulate_faces(mesh, normals);
 }
 
 /*! Main entry.
