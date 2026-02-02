@@ -18,7 +18,7 @@ namespace params = CGAL::parameters;
 /*! computes the union of two polygon meshes using polygon soup operations.
  */
 template <typename Mesh>
-void soup_union(Mesh& mesh1, Mesh& mesh2, Mesh& result) {
+void soup_union(const Mesh& mesh1, const Mesh& mesh2, Mesh& result) {
   using Triangle = boost::container::small_vector<std::size_t, 3>;
   using Point_pm = typename boost::property_map<Mesh, boost::vertex_point_t>::type;
   using Point_3 = typename boost::property_traits<Point_pm>::value_type;

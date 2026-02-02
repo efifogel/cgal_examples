@@ -119,8 +119,10 @@ bool split_mesh_by_plane(const Mesh_& input_mesh, const typename Kernel_::Plane_
 //     return 0;
 // }
 
-template <typename Kernel>
-typename Kernel::Iso_cuboid_3 make_iso_cube(double size, const Kernel& kernel) {
+template <typename Kernel_>
+typename Kernel::Iso_cuboid_3 make_iso_cube(double size, const Kernel_& kernel) {
+  using Kernel = Kernel_;
+
   size *= 0.5;
   typename Kernel::Point_3 p(-size, -size, -size);
   typename Kernel::Point_3 q(size, size, size);
@@ -160,24 +162,24 @@ bool split_mesh(const Cube_& bbox, Mesh_& mesh_pos, Mesh_& mesh_neg, double offs
 
   std::vector<Point_3> points_pos(8);
   points_pos[0] = Point_3(bbox.xmin()-offset, bbox.ymin()-offset, bbox.zmin()-offset);
-  points_pos[1] = Point_3(midx+offset, bbox.ymin()-offset, bbox.zmin()-offset);
-  points_pos[2] = Point_3(midx+offset, bbox.ymax()+offset, bbox.zmin()-offset);
+  points_pos[1] = Point_3(midx, bbox.ymin()-offset, bbox.zmin()-offset);
+  points_pos[2] = Point_3(midx, bbox.ymax()+offset, bbox.zmin()-offset);
   points_pos[3] = Point_3(bbox.xmin()-offset, bbox.ymax()+offset, bbox.zmin()-offset);
   points_pos[4] = Point_3(bbox.xmin()-offset, bbox.ymin()-offset, bbox.zmax()+offset);
-  points_pos[5] = Point_3(midx+offset, bbox.ymin()-offset, bbox.zmax()+offset);
-  points_pos[6] = Point_3(midx+offset, bbox.ymax()+offset, bbox.zmax()+offset);
+  points_pos[5] = Point_3(midx, bbox.ymin()-offset, bbox.zmax()+offset);
+  points_pos[6] = Point_3(midx, bbox.ymax()+offset, bbox.zmax()+offset);
   points_pos[7] = Point_3(bbox.xmin()-offset, bbox.ymax()+offset, bbox.zmax()+offset);
   CGAL::convex_hull_3(points_pos.begin(), points_pos.end(), mesh_pos);
 
   std::vector<Point_3> points_neg(8);
-  points_neg[0] = Point_3(midx-offset, bbox.ymin()-offset, bbox.zmin()-offset);
+  points_neg[0] = Point_3(midx, bbox.ymin()-offset, bbox.zmin()-offset);
   points_neg[1] = Point_3(bbox.xmax()+offset, bbox.ymin()-offset, bbox.zmin()-offset);
   points_neg[2] = Point_3(bbox.xmax()+offset, bbox.ymax()+offset, bbox.zmin()-offset);
-  points_neg[3] = Point_3(midx-offset, bbox.ymax()+offset, bbox.zmin()-offset);
-  points_neg[4] = Point_3(midx-offset, bbox.ymin()-offset, bbox.zmax()+offset);
+  points_neg[3] = Point_3(midx, bbox.ymax()+offset, bbox.zmin()-offset);
+  points_neg[4] = Point_3(midx, bbox.ymin()-offset, bbox.zmax()+offset);
   points_neg[5] = Point_3(bbox.xmax()+offset, bbox.ymin()-offset, bbox.zmax()+offset);
   points_neg[6] = Point_3(bbox.xmax()+offset, bbox.ymax()+offset, bbox.zmax()+offset);
-  points_neg[7] = Point_3(midx-offset, bbox.ymax()+offset, bbox.zmax()+offset);
+  points_neg[7] = Point_3(midx, bbox.ymax()+offset, bbox.zmax()+offset);
   CGAL::convex_hull_3(points_neg.begin(), points_neg.end(), mesh_neg);
 
   return true;
@@ -185,8 +187,10 @@ bool split_mesh(const Cube_& bbox, Mesh_& mesh_pos, Mesh_& mesh_neg, double offs
 
 /*!
  */
-template <typename Mesh, typename OutputIterator, typename Kernel>
-OutputIterator gaussian_maps(Mesh& mesh, OutputIterator oi, const Kernel& kernel) {
+template <typename Mesh, typename OutputIterator, typename Kernel_>
+OutputIterator gaussian_maps(Mesh& mesh, OutputIterator oi, const Kernel_& kernel) {
+  using Kernel = Kernel_;
+
   if (CGAL::is_strongly_convex_3(mesh, kernel)) {
     *oi++ = gaussian_map<Arrangement>(mesh, kernel);
     return oi;
@@ -198,7 +202,7 @@ OutputIterator gaussian_maps(Mesh& mesh, OutputIterator oi, const Kernel& kernel
     if (! ci->mark()) continue;
     Mesh mesh;
     mesh_nef.convert_inner_shell_to_polyhedron(ci->shells_begin(), mesh);
-    draw(mesh, "Convex part");
+    // draw(mesh, "Convex part");
     *oi++ = gaussian_map<Arrangement>(mesh, kernel);
   }
   return oi;
@@ -206,16 +210,18 @@ OutputIterator gaussian_maps(Mesh& mesh, OutputIterator oi, const Kernel& kernel
 
 /*!
  */
-template <typename Mesh, typename InputIterator, typename Arrangement_>
-Mesh minkowski_sum_3(InputIterator begin, InputIterator end, const Arrangement_& gm2) {
+template <typename Mesh_, typename InputIterator, typename Arrangement_>
+void minkowski_sum_3(InputIterator begin, InputIterator end, const Arrangement_& gm2, Mesh_& ms) {
+  using Arrangement = Arrangement_;
+  using Mesh = Mesh_;
+
   CGAL::Arr_face_overlay_traits<Arrangement, Arrangement, Arrangement, Adder> overlay_traits;
-  Mesh ms;
   bool first = true;
   for (auto it = begin; it != end; ++it) {
     Arrangement gm;
-    CGAL::overlay(*it, gm2, gm, overlay_traits); /* \label{lst:minkSum:overlay} */
+    CGAL::overlay(*it, gm2, gm, overlay_traits);
     using Halfedge_ds = typename Mesh::HalfedgeDS;
-    Polyhedron_builder<Halfedge_ds, Arrangement> surface(gm); /* \label{lst:minkSum:surface} */
+    Polyhedron_builder<Halfedge_ds, Arrangement> surface(gm);
     if (first) {
       ms.delegate(surface);
       PMP::triangulate_faces(ms);
@@ -225,9 +231,83 @@ Mesh minkowski_sum_3(InputIterator begin, InputIterator end, const Arrangement_&
     Mesh mesh;
     mesh.delegate(surface);
     PMP::triangulate_faces(mesh);
-    soup_union(ms, mesh, ms);
+    corefine_union(ms, mesh, ms);
   }
-  return ms;
+}
+
+/*!
+ */
+template <typename Mesh, typename Arrangement_>
+void extract_mesh(const Arrangement_& gm, Mesh& mesh) {
+  using Arrangement = Arrangement_;
+  using Halfedge_ds = typename Mesh::HalfedgeDS;
+
+  Polyhedron_builder<Halfedge_ds, Arrangement> surface(gm);
+  mesh.delegate(surface);
+  PMP::triangulate_faces(mesh);
+}
+
+/*!
+ */
+template <typename Mesh_, typename Arrangement_, typename Kernel_>
+void contract_mesh(Mesh_& bbox_pos, Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& contracted_pos,
+                   const Kernel_& kernel) {
+  using Mesh = Mesh_;
+  using Arrangement = Arrangement_;
+  using Kernel = Kernel_;
+
+  auto np = params::geom_traits(kernel);
+
+  // Compute the difference between the bounding box and the mesh
+  Mesh complement;
+  soup_difference(bbox_pos, mesh, complement);
+
+#if USING_SURFACE_MESH
+  auto complement_normals = complement_sm.template add_property_map<Fd, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+#else
+  Face_normal_map<Mesh> complement_normals;
+#endif
+  CGAL::Polygon_mesh_processing::compute_face_normals(complement, complement_normals, np);
+  merge_coplanar_faces(complement, complement_normals, np);
+  retriangulate_faces(complement, complement_normals);
+  CGAL::draw(complement, "Complement");
+
+  // Polyhedral_mesh complement;
+  // CGAL::copy_face_graph(complement_sm, complement);
+  // CGAL::draw(complement, "Complement");
+
+  // Decompose the difference into convex pieces and compute their Gaussian maps
+  std::vector<Arrangement> gms1;
+  gaussian_maps(complement, std::back_inserter(gms1), kernel);
+  std::cout << "Complement decomposed into " << gms1.size() << " pieces\n";
+
+  // Compute the contracted part
+#if USING_SURFACE_MESH
+  CGAL::copy_face_graph(bbox_pos, contracted_pos);
+#else
+  contracted_pos = bbox_pos;
+#endif
+  CGAL::Arr_face_overlay_traits<Arrangement, Arrangement, Arrangement, Adder> overlay_traits;
+  for (auto it = gms1.begin(); it != gms1.end(); ++it) {
+    Arrangement gm;
+    CGAL::overlay(*it, cube_gm, gm, overlay_traits);
+    Mesh ms;
+    extract_mesh(gm, ms);
+    corefine_difference(contracted_pos, ms, contracted_pos);
+  }
+}
+
+/*!
+ */
+template <typename Mesh_, typename Kernel_>
+void triangulate(Mesh_& mesh, const Kernel_& kernel) {
+  using Mesh = Mesh_;
+
+  auto np = params::geom_traits(kernel);
+  Face_normal_map<Mesh> normals;
+  CGAL::Polygon_mesh_processing::compute_face_normals(mesh, normals, np);
+  merge_coplanar_faces(mesh, normals, np);
+  retriangulate_faces(mesh, normals);
 }
 
 /*! Main entry.
@@ -242,65 +322,48 @@ int main(int argc, char* argv[]) {
   using Fd = typename boost::graph_traits<Surface_mesh>::face_descriptor;
 
   Kernel kernel;
-  auto np = params::geom_traits(kernel);
 
   const char* filename = (argc > 1) ? argv[1] : "star.off";
 
-  // Construct the first mesh
-  Surface_mesh mesh_sm;
-  auto rc1 = CGAL::IO::read_polygon_mesh(filename, mesh_sm);
-  CGAL::draw(mesh_sm, filename);
-
-  // Compute the bounding box
-  CGAL::Bbox_3 bbox = CGAL::Polygon_mesh_processing::bbox(mesh_sm);
-  std::cout << bbox << std::endl;
-  Surface_mesh bbox_pos_sm, bbox_neg_sm;
-  split_mesh(bbox, bbox_pos_sm, bbox_neg_sm, 1e-5);
-  CGAL::draw(bbox_pos_sm, "Bounding box positive");
-  CGAL::draw(bbox_neg_sm, "Bounding box negative");
-
-  auto bbox_sm = bbox_pos_sm;
-
-  // Compute the difference between the bounding box and the mesh
-  Surface_mesh complement_sm;
-  soup_difference(bbox_sm, mesh_sm, complement_sm);
-  auto complement_normals = complement_sm.template add_property_map<Fd, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
-  CGAL::Polygon_mesh_processing::compute_face_normals(complement_sm, complement_normals, np);
-  merge_coplanar_faces(complement_sm, complement_normals, np);
-  retriangulate_faces(complement_sm, complement_normals);
-  CGAL::draw(complement_sm, "Complement sm");
-
-  Polyhedral_mesh complement_pm;
-  CGAL::copy_face_graph(complement_sm, complement_pm);
-  CGAL::draw(complement_pm, "Complement pm");
-
-  // Decompose the difference into convex pieces and compute their Gaussian maps
-  std::vector<Arrangement> gms1;
-  gaussian_maps(complement_pm, std::back_inserter(gms1), kernel);
-  std::cout << "Complement decomposed into " << gms1.size() << " pieces\n";
-
+  // Generate an epsilon cube
   // double size = 1e-5;
   double size = 0.2;
   auto cube_iso = make_iso_cube(size, kernel);
   auto cube_pm = to_mesh<Polyhedral_mesh>(cube_iso);
 
-  CGAL::draw(cube_pm, "Iso Cube pm");
+  // Compute the Gaussian map of the cube.
   Arrangement cube_gm = gaussian_map<Arrangement>(cube_pm, kernel);
-  auto ms_pm = minkowski_sum_3<Polyhedral_mesh>(gms1.begin(), gms1.end(), cube_gm);
-  CGAL::draw(ms_pm, "Minkowski Sum pm");
 
-  Surface_mesh ms_sm;
-  CGAL::copy_face_graph(ms_pm, ms_sm);
+  // Construct the mesh.
+  Polyhedral_mesh mesh;
+  auto rc1 = CGAL::IO::read_polygon_mesh(filename, mesh);
+  CGAL::draw(mesh, filename);
 
-  auto normals = ms_sm.template add_property_map<Fd, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
-  CGAL::Polygon_mesh_processing::compute_face_normals(ms_sm, normals, np);
-  merge_coplanar_faces(ms_sm, normals, np);
-  retriangulate_faces(ms_sm, normals);
-  CGAL::draw(ms_sm, "Minkowski Sum sm");
+  // Compute the bounding box and split the mesh.
+  CGAL::Bbox_3 bbox = CGAL::Polygon_mesh_processing::bbox(mesh);
+  std::cout << bbox << std::endl;
+  Polyhedral_mesh bbox_pos, bbox_neg;
+  split_mesh(bbox, bbox_pos, bbox_neg, 1e-5);
 
-  Surface_mesh result;
-  corefine_difference(bbox_sm, ms_sm, result);
-  CGAL::draw(result, "result");
+  // Contract.
+  Polyhedral_mesh contracted_pos, contracted_neg, contracted;
+  contract_mesh(bbox_pos, mesh, cube_gm, contracted_pos, kernel);
+  CGAL::draw(contracted_pos, "Contracted pos");
+  contract_mesh(bbox_neg, mesh, cube_gm, contracted_neg, kernel);
+  CGAL::draw(contracted_pos, "Contracted neg");
+
+  corefine_union(contracted_pos, contracted_neg, contracted);
+  triangulate(contracted, kernel);
+  CGAL::draw(contracted, "Contracted");
+
+  // Expand.
+  std::vector<Arrangement> gms;
+  gaussian_maps(contracted, std::back_inserter(gms), kernel);
+  std::cout << "contracted decomposed into " << gms.size() << " pieces\n";
+  Polyhedral_mesh expanded;
+  minkowski_sum_3<Polyhedral_mesh>(gms.begin(), gms.end(), cube_gm, expanded);
+  triangulate(expanded, kernel);
+  CGAL::draw(expanded, "Expanded");
 
   return 0;
 }
