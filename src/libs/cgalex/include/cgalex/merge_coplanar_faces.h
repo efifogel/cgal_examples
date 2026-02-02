@@ -12,7 +12,7 @@
  */
 template <typename FaceDescriptor, typename HandleMap>
 typename CGAL::Union_find<FaceDescriptor>::handle
-uf_get_handle(FaceDescriptor f, CGAL::Union_find<FaceDescriptor>& uf_faces, HandleMap& handles) {
+uf_get_face_handle(FaceDescriptor f, CGAL::Union_find<FaceDescriptor>& uf_faces, HandleMap& handles) {
   using Face_descriptor = FaceDescriptor;
   using Uf_faces = CGAL::Union_find<Face_descriptor>;
   using Uf_handle = typename Uf_faces::handle;
@@ -32,8 +32,8 @@ bool uf_join_faces(FaceDescriptor f1, FaceDescriptor f2,
   using Uf_faces = CGAL::Union_find<Face_descriptor>;
   using Uf_handle = typename Uf_faces::handle;
 
-  Uf_handle h1 = uf_get_handle(f1, uf_faces, handles);
-  Uf_handle h2 = uf_get_handle(f2, uf_faces, handles);
+  Uf_handle h1 = uf_get_face_handle(f1, uf_faces, handles);
+  Uf_handle h2 = uf_get_face_handle(f2, uf_faces, handles);
   bool same_set = uf_faces.same_set(h1, h2);
   if (! same_set) uf_faces.unify_sets(h1, h2);
   return ! same_set;
