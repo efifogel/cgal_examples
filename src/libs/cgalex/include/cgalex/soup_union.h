@@ -23,9 +23,9 @@ void soup_union(Mesh& mesh1, Mesh& mesh2, Mesh& result) {
   using Point_pm = typename boost::property_map<Mesh, boost::vertex_point_t>::type;
   using Point_3 = typename boost::property_traits<Point_pm>::value_type;
 #ifdef CGAL_LINKED_WITH_TBB
-using Concurrency_tag = CGAL::Parallel_tag;
+  using Concurrency_tag = CGAL::Parallel_tag;
 #else
-using Concurrency_tag = CGAL::Sequential_tag;
+  using Concurrency_tag = CGAL::Sequential_tag;
 #endif
 
   std::vector<Point_3> points1, points2;
@@ -37,6 +37,8 @@ using Concurrency_tag = CGAL::Sequential_tag;
   std::vector<Triangle> triangles;
   CGAL::compute_union<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
   PMP::orient_polygon_soup(points, triangles);
+
+  result.clear();
   PMP::polygon_soup_to_polygon_mesh(points, triangles, result);
   PMP::stitch_borders(result, params::apply_per_connected_component(true));
 }

@@ -37,6 +37,8 @@ using Concurrency_tag = CGAL::Sequential_tag;
   std::vector<Triangle> triangles;
   CGAL::compute_difference<Concurrency_tag>(points1, triangles1, points2, triangles2, points, triangles);
   PMP::orient_polygon_soup(points, triangles);
+
+  result.clear();
   PMP::polygon_soup_to_polygon_mesh(points, triangles, result);
   PMP::stitch_borders(result, params::apply_per_connected_component(true));
 }
