@@ -24,7 +24,8 @@ void build_gaussian_map(Graph& g, const FaceNormalMap& normals, Arrangement& gm,
   auto points = CGAL::get(CGAL::vertex_point, g);
   std::unordered_map<vertex_descriptor, bool> vflags;
   auto flags = boost::make_assoc_property_map(vflags);
-  Gaussian_map_builder<Graph, Face_normal_map, decltype(points), decltype(flags)> builder(gm, normals, points, flags);
+  Gaussian_map_builder<Arrangement, Graph, Face_normal_map, decltype(points), decltype(flags)>
+    builder(gm, normals, points, flags);
   auto src = *CGAL::vertices(g).first;
   builder(g, src, true);
 }

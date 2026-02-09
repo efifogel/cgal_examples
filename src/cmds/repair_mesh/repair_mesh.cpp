@@ -2,6 +2,10 @@
 
 #include <boost/program_options.hpp>
 
+#include <CGAL/Arrangement_on_surface_2.h>
+#include <CGAL/Arr_geodesic_arc_on_sphere_traits_2.h>
+#include <CGAL/Arr_spherical_topology_traits_2.h>
+#include <CGAL/Arr_extended_dcel.h>
 #include <CGAL/Arr_overlay_2.h>
 #include <CGAL/Arr_default_overlay_traits.h>
 #include <CGAL/boost/graph/copy_face_graph.h>
@@ -25,7 +29,6 @@
 #include <CGAL/Surface_mesh.h>
 
 #include "cgalex/Adder.h"
-#include "cgalex/arr_gaussian_map.h"
 #include "cgalex/corefine_difference.h"
 #include "cgalex/corefine_union.h"
 #include "cgalex/Face_normal_map.h"
@@ -141,7 +144,7 @@ bool split_mesh_by_plane(const Mesh_& input_mesh, const typename Kernel_::Plane_
 // }
 
 template <typename Kernel_>
-typename Kernel::Iso_cuboid_3 make_iso_cube(double size, const Kernel_& kernel) {
+typename Kernel_::Iso_cuboid_3 make_iso_cube(double size, const Kernel_& kernel) {
   using Kernel = Kernel_;
 
   size *= 0.5;
@@ -208,9 +211,9 @@ bool split_mesh(const Cube_& bbox, Mesh_& mesh_pos, Mesh_& mesh_neg, double offs
 
 /*!
  */
-template <typename Mesh, typename OutputIterator, typename Kernel_>
+template <typename Arrangement_, typename Mesh, typename OutputIterator, typename Kernel_>
 OutputIterator gaussian_maps(Mesh& mesh, OutputIterator oi, const Kernel_& kernel) {
-  std::cout << "gaussian_maps()\n";
+  using Arrangement = Arrangement_;
   using Kernel = Kernel_;
 
   if (CGAL::is_strongly_convex_3(mesh, kernel)) {
@@ -316,7 +319,7 @@ void contract_mesh(Mesh_& bbox_part, Mesh_& mesh, const Arrangement_& cube_gm, M
 
   // Decompose the difference into convex pieces and compute their Gaussian maps
   std::vector<Arrangement> gms1;
-  gaussian_maps(complement, std::back_inserter(gms1), kernel);
+  gaussian_maps<Arrangement>(complement, std::back_inserter(gms1), kernel);
   std::cout << "Complement decomposed into " << gms1.size() << " pieces\n";
 
   // Compute the contracted part
@@ -348,6 +351,16 @@ int main(int argc, char* argv[]) {
   using Traits = CGAL::Polyhedron_traits_with_normals_3<Kernel>;
   using Polyhedral_mesh = CGAL::Polyhedron_3<Traits, Extended_polyhedron_items>;
   using Surface_mesh = CGAL::Surface_mesh<Point_3>;
+
+using Geom_traits = CGAL::Arr_geodesic_arc_on_sphere_traits_2<Kernel>;
+using Point = Geom_traits::Point_2;
+using X_monotone_curve = Geom_traits::X_monotone_curve_2;
+using Dcel = CGAL::Arr_face_extended_dcel<Geom_traits, Point_3>;
+using Topol_traits = CGAL::Arr_spherical_topology_traits_2<Geom_traits,Dcel>;
+using Arrangement = CGAL::Arrangement_on_surface_2<Geom_traits,Topol_traits>;
+using Vertex_handle = Arrangement::Vertex_handle;
+using Halfedge_handle = Arrangement::Halfedge_handle;
+using Face_handle = Arrangement::Face_handle;
 
   std::size_t verbose = 0;
   auto do_draw = false;
@@ -439,7 +452,7 @@ int main(int argc, char* argv[]) {
 
   // Expand.
   std::vector<Arrangement> gms;
-  gaussian_maps(contracted, std::back_inserter(gms), kernel);
+  gaussian_maps<Arrangement>(contracted, std::back_inserter(gms), kernel);
   std::cout << "contracted decomposed into " << gms.size() << " pieces\n";
   Polyhedral_mesh expanded;
   minkowski_sum_3<Polyhedral_mesh>(gms.begin(), gms.end(), cube_gm, expanded);
