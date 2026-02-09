@@ -1,5 +1,5 @@
-#ifndef VERTEX_FLAG_MAP_MAP_H
-#define VERTEX_FLAG_MAP_MAP_H
+#ifndef CGALEX_VERTEX_FLAG_MAP_MAP_H
+#define CGALEX_VERTEX_FLAG_MAP_MAP_H
 
 template <typename Polyhedron>
 class Vertex_flag_map {
@@ -13,11 +13,9 @@ public:
 
   Vertex_flag_map() {}
 
-  friend bool get(const Vertex_flag_map&, Vertex_handle vd)
-  { return vd->flag(); }
+  friend bool get(const Vertex_flag_map&, Vertex_handle vd) { return vd->flag(); }
 
-  friend void put(const Vertex_flag_map&, Vertex_handle vd, bool flag)
-  { vd->set_flag(flag); }
+  friend void put(const Vertex_flag_map&, Vertex_handle vd, bool flag) { vd->set_flag(flag); }
 };
 
 #endif

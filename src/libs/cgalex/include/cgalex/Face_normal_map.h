@@ -1,5 +1,5 @@
-#ifndef FACE_NORMAL_MAP_MAP_H
-#define FACE_NORMAL_MAP_MAP_H
+#ifndef CGALEX_FACE_NORMAL_MAP_MAP_H
+#define CGALEX_FACE_NORMAL_MAP_MAP_H
 
 template <typename Polyhedron>
 class Face_normal_map {

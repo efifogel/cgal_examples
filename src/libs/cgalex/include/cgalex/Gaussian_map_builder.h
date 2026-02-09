@@ -1,5 +1,5 @@
-#ifndef GAUSSIAN_MAP_BUILDER_H
-#define GAUSSIAN_MAP_BUILDER_H
+#ifndef CGALEX_GAUSSIAN_MAP_BUILDER_H
+#define CGALEX_GAUSSIAN_MAP_BUILDER_H
 
 #include <unordered_map>
 #include <list>
@@ -9,8 +9,8 @@
 
 #include <CGAL/Kernel_traits.h>
 
-#include "arr_gaussian_map.h"
-#include "Base_gaussian_map_builder.h"
+#include "cgalex/arr_gaussian_map.h"
+#include "cgalex/Base_gaussian_map_builder.h"
 
 template <typename Graph, typename FaceNormalMap, typename VertexPointMap,
           typename VertexFlagMap>

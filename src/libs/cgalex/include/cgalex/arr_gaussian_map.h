@@ -1,5 +1,5 @@
-#ifndef ARR_GAUSSIAN_MAP_H
-#define ARR_GAUSSIAN_MAP_H
+#ifndef CGALEX_ARR_GAUSSIAN_MAP_H
+#define CGALEX_ARR_GAUSSIAN_MAP_H
 
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Arrangement_on_surface_2.h>

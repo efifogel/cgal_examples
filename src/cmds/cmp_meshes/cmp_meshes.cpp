@@ -11,8 +11,11 @@
 #include <boost/container/small_vector.hpp>
 #include <boost/graph/vf2_sub_graph_iso.hpp>
 
+#include <CGAL/Arr_overlay_2.h>
+#include <CGAL/Arr_default_overlay_traits.h>
 #include <CGAL/boost/graph/helpers.h>
 #include <CGAL/boost/graph/selection.h>
+#include <CGAL/convex_hull_3.h>
 #include <CGAL/convexity_check_3.h>
 #include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 // #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
@@ -32,14 +35,20 @@
 #if defined(CGALEX_HAS_VISUAL)
 #include <CGAL/Basic_viewer.h>
 #include <CGAL/draw_surface_mesh.h>
+#include <CGAL/draw_arrangement_2.h>
 #endif
 
+#include "cgalex/Adder.h"
 #include "cgalex/find_file_fullname.h"
+#include "cgalex/gaussian_map_sm.h"
 #include "cgalex/io_paths.h"
 #include "cgalex/merge_coplanar_faces.h"
 #include "cgalex/Paths.h"
 #include "cgalex/triangulate_faces.h"
 #include "cgalex/match_faces.h"
+
+#include "minimum_bounding_box.h"
+#include "reflect_mesh.h"
 
 using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
 // using Kernel = CGAL::Exact_predicates_inexact_constructions_kernel;
@@ -51,6 +60,17 @@ using halfedge_descriptor = boost::graph_traits<Mesh>::halfedge_descriptor;
 using edge_descriptor = boost::graph_traits<Mesh>::edge_descriptor;
 using face_descriptor = boost::graph_traits<Mesh>::face_descriptor;
 using Triangle = boost::container::small_vector<std::size_t, 3>;
+
+using Point_3 = Kernel::Point_3;
+using Geom_traits = CGAL::Arr_geodesic_arc_on_sphere_traits_2<Kernel>;
+using Point = Geom_traits::Point_2;
+using X_monotone_curve = Geom_traits::X_monotone_curve_2;
+using Dcel = CGAL::Arr_face_extended_dcel<Geom_traits, Point_3>;
+using Topol_traits = CGAL::Arr_spherical_topology_traits_2<Geom_traits,Dcel>;
+using Arrangement = CGAL::Arrangement_on_surface_2<Geom_traits,Topol_traits>;
+using Vertex_handle = Arrangement::Vertex_handle;
+using Halfedge_handle = Arrangement::Halfedge_handle;
+using Face_handle = Arrangement::Face_handle;
 
 namespace po = boost::program_options;
 namespace fs = std::filesystem;
@@ -67,6 +87,8 @@ enum class Criterion : int {
   NUMBER_OF_EDGES,
   NUMBER_OF_FACES,
   VOLUME,
+  CH_VOLUME,
+  MBB_SIZES,
   AREA,
   SELF_INTERSECTION,
   CONVEXITY,
@@ -167,6 +189,27 @@ Result do_faces_match(const Mesh& mesh1, const Mesh& mesh2, std::size_t verbose)
                 std::to_string(m1_only.size()) + " only in 1st, " + std::to_string(m2_only.size()) + " only in 2nd");
 }
 
+/*!
+ */
+template <typename FT>
+std::string sqrt_to_string(const FT& ft) { return std::to_string(std::sqrt(CGAL::to_double(ft))); }
+
+/*!
+ */
+std::pair<std::array<Kernel::FT, 3>, std::array<Kernel::Direction_3, 3>>
+minimum_bounding_box(Mesh& mesh, const Kernel& kernel) {
+  auto gm1 = gaussian_map_sm<Arrangement>(mesh, kernel);
+  CGAL_assertion(gm1.is_valid());
+  auto rm = reflect_mesh(mesh, kernel);
+  auto gm2 = gaussian_map_sm<Arrangement>(rm, kernel);
+  CGAL_assertion(gm2.is_valid());
+  CGAL::Arr_face_overlay_traits<Arrangement, Arrangement, Arrangement, Adder> overlay_traits;
+  Arrangement gm;
+  CGAL::overlay(gm1, gm2, gm, overlay_traits);
+  CGAL_assertion(gm.is_valid());
+  return minimum_bounding_box(gm, kernel);
+}
+
 //
 std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, double tolerance, std::size_t verbose,
                             const Kernel& kernel) {
@@ -236,15 +279,65 @@ std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, double toleran
   }
   else if (verbose > 1) results.emplace_back(true, Criterion::SELF_INTERSECTION, std::to_string(self_intersect1));
 
-  auto is_convex1 = CGAL::is_strongly_convex_3(mesh1, kernel);
-  auto is_convex2 = CGAL::is_strongly_convex_3(mesh2, kernel);
+  auto is_convex1 = CGAL::is_strongly_convex_3(tmesh1, kernel);
+  auto is_convex2 = CGAL::is_strongly_convex_3(tmesh2, kernel);
   if (is_convex1 != is_convex2) {
     results.emplace_back(Criterion::CONVEXITY, std::to_string(is_convex1) + ", " + std::to_string(is_convex2));
   }
   else if (verbose > 1) results.emplace_back(true, Criterion::CONVEXITY, std::to_string(is_convex1));
 
-  /* Compare the widths (obb sizes)
+  /*! Compare the volume of the convex hulls
    */
+  std::array<Kernel::FT, 3> mbb_square_sizes1;
+  std::array<Kernel::Direction_3, 3> mbb_directions1;
+  if (! is_convex1) {
+    decltype(tmesh1) ch_tmesh1;
+    CGAL::convex_hull_3(tmesh1, ch_tmesh1);
+    volume1 = CGAL::to_double(PMP::volume(ch_tmesh1));
+    CGAL::IO::write_polygon_mesh("ch1.off", ch_tmesh1, CGAL::parameters::stream_precision(17));
+    tie(mbb_square_sizes1, mbb_directions1) = minimum_bounding_box(ch_tmesh1, kernel);
+  }
+  else {
+    tie(mbb_square_sizes1, mbb_directions1) = minimum_bounding_box(tmesh1, kernel);
+  }
+  std::array<Kernel::FT, 3> mbb_square_sizes2;
+  std::array<Kernel::Direction_3, 3> mbb_directions2;
+  if (! is_convex2) {
+    decltype(tmesh2) ch_tmesh2;
+    CGAL::convex_hull_3(tmesh2, ch_tmesh2);
+    volume2 = CGAL::to_double(PMP::volume(ch_tmesh2));
+    CGAL::IO::write_polygon_mesh("ch2.off", ch_tmesh2, CGAL::parameters::stream_precision(17));
+    tie(mbb_square_sizes2, mbb_directions2) = minimum_bounding_box(ch_tmesh2, kernel);
+  }
+  else {
+    tie(mbb_square_sizes2, mbb_directions2) = minimum_bounding_box(tmesh2, kernel);
+  }
+
+  if (std::abs(volume1 - volume2) > tolerance) {
+    results.emplace_back(Criterion::CH_VOLUME, std::to_string(volume1) + ", " + std::to_string(volume2));
+  }
+  else if (verbose > 1) results.emplace_back(true, Criterion::CH_VOLUME, std::to_string(volume1));
+
+  /* Compare the bounding boxes
+   */
+  std::array<double, 3> mbb_sizes1, mbb_sizes2;
+  for (std::size_t i = 0; i < 3; ++i) {
+    mbb_sizes1[i] = std::sqrt(CGAL::to_double(mbb_square_sizes1[i]));
+    mbb_sizes2[i] = std::sqrt(CGAL::to_double(mbb_square_sizes2[i]));
+  }
+  if ((std::abs(mbb_sizes2[0] - mbb_sizes1[0]) > tolerance) ||
+      (std::abs(mbb_sizes2[1] - mbb_sizes1[1]) > tolerance) ||
+      (std::abs(mbb_sizes2[2] - mbb_sizes1[2]) > tolerance)) {
+    results.emplace_back(Criterion::MBB_SIZES,
+                         std::string("\n  (") + std::to_string(mbb_sizes1[0]) + ", " +
+                         std::to_string(mbb_sizes1[1]) + ", " + std::to_string(mbb_sizes1[2]) + std::string(")") +
+                         std::string("\n  (") + std::to_string(mbb_sizes2[0]) + ", " +
+                         std::to_string(mbb_sizes2[1]) + ", " + std::to_string(mbb_sizes2[2]) + std::string(")"));
+  }
+  else if (verbose > 1)
+    results.emplace_back(Criterion::MBB_SIZES,
+                         std::string("\n  (") + std::to_string(mbb_sizes1[0]) + ", " +
+                         std::to_string(mbb_sizes1[1]) + ", " + std::to_string(mbb_sizes1[2]) + std::string(")"));
 
 #if 0
   // Comparing isomorphism is disabled at this point.
@@ -421,12 +514,12 @@ int main(int argc, char* argv[]) {
     gso1.ignore_all_vertices(true);
     gso1.ignore_all_edges(true);
     gso1.colored_face = [](const Mesh&, face_descriptor) -> bool { return true; };
-    gso1.face_color = [](const Mesh&, face_descriptor fh) -> CGAL::IO::Color { return CGAL::IO::Color(0, 0, 255); };
+    gso1.face_color = [](const Mesh&, face_descriptor fh) -> CGAL::IO::Color { return CGAL::IO::Color(0, 0, 255, 150); };
     CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso2;
     gso2.ignore_all_vertices(true);
     gso2.ignore_all_edges(true);
     gso2.colored_face = [](const Mesh&, face_descriptor) -> bool { return true; };
-    gso2.face_color = [](const Mesh&, face_descriptor fh) -> CGAL::IO::Color { return CGAL::IO::Color(255, 0, 0); };
+    gso2.face_color = [](const Mesh&, face_descriptor fh) -> CGAL::IO::Color { return CGAL::IO::Color(255, 0, 0, 150); };
     CGAL::Graphics_scene scene;
     CGAL::add_to_graphics_scene(mesh1, scene, gso1);
     CGAL::add_to_graphics_scene(mesh2, scene, gso2);
@@ -575,6 +668,14 @@ int main(int argc, char* argv[]) {
 
        case Criterion::VOLUME:
         std::cout << " volume: " << res.m_message << std::endl;
+        break;
+
+       case Criterion::CH_VOLUME:
+        std::cout << " convex-hull volume: " << res.m_message << std::endl;
+        break;
+
+       case Criterion::MBB_SIZES:
+        std::cout << " minimum bounding box sizes: " << res.m_message << std::endl;
         break;
 
        case Criterion::AREA:

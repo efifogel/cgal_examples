@@ -1,10 +1,10 @@
-#ifndef RETRIANGULE_COPLANAR_FACES_H
-#define RETRIANGULE_COPLANAR_FACES_H
+#ifndef CGALEX_RETRIANGULE_COPLANAR_FACES_H
+#define CGALEX_RETRIANGULE_COPLANAR_FACES_H
 
 #include <CGAL/boost/graph/named_params_helper.h>
 
-#include "merge_coplanar_faces.h"
-#include "triangulate_faces.h"
+#include "cgalex/merge_coplanar_faces.h"
+#include "cgalex/triangulate_faces.h"
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 namespace params = CGAL::parameters;

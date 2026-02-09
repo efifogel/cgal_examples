@@ -38,6 +38,7 @@ set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/
 set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/corefine_intersection.h)
 set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/corefine_union.h)
 set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/find_file_fullname.h)
+set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/gaussian_map_sm.h)
 set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/io_paths.h)
 set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/merge_coplanar_faces.h)
 set(${component}_PUB_HDR_FILES ${${component}_PUB_HDR_FILES} include/${project}/Paths.h)

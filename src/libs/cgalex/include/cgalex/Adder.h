@@ -1,5 +1,5 @@
-#ifndef ADDER_H
-#define ADDER_H
+#ifndef CGALEX_ADDER_H
+#define CGALEX_ADDER_H
 
 #include <CGAL/Kernel_traits.h>
 

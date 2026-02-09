@@ -1,13 +1,12 @@
-#ifndef GAUSSIAN_MAP_H
-#define GAUSSIAN_MAP_H
+#ifndef CGALEX_GAUSSIAN_MAP_H
+#define CGALEX_GAUSSIAN_MAP_H
 
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
 
 #include "cgalex/merge_coplanar_faces.h"
-
-#include "build_gaussian_map.h"
-#include "Face_normal_map.h"
-#include "Vertex_flag_map.h"
+#include "cgalex/build_gaussian_map.h"
+#include "cgalex/Face_normal_map.h"
+#include "cgalex/Vertex_flag_map.h"
 
 template <typename GaussianMap, typename Mesh, typename Kernel>
 GaussianMap gaussian_map(Mesh& mesh, const Kernel& kernel) {

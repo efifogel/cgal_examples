@@ -1,5 +1,5 @@
-#ifndef MAKE_X_MONOTONE_H
-#define MAKE_X_MONOTONE_H
+#ifndef CGALEX_MAKE_X_MONOTONE_H
+#define CGALEX_MAKE_X_MONOTONE_H
 
 template <typename Vector_3, typename Traits, typename OutputIterator>
 OutputIterator make_x_monotone(const Vector_3& n1, const Vector_3& n2,

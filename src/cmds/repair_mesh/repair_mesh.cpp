@@ -1,8 +1,13 @@
+#include <vector>
+
+#include <boost/program_options.hpp>
+
 #include <CGAL/Arr_overlay_2.h>
 #include <CGAL/Arr_default_overlay_traits.h>
 #include <CGAL/boost/graph/copy_face_graph.h>
 #include <CGAL/Bbox_3.h>
 #include <CGAL/bounding_box.h>
+#include <CGAL/convex_decomposition_3.h>
 #include <CGAL/convex_hull_3.h>
 #include <CGAL/draw_arrangement_2.h>
 #include <CGAL/draw_polyhedron.h>
@@ -19,21 +24,37 @@
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Surface_mesh.h>
 
-#include <CGAL/convex_decomposition_3.h>
-
-#include "cgalex/merge_coplanar_faces.h"
+#include "cgalex/Adder.h"
+#include "cgalex/arr_gaussian_map.h"
 #include "cgalex/corefine_difference.h"
 #include "cgalex/corefine_union.h"
+#include "cgalex/Face_normal_map.h"
+#include "cgalex/find_file_fullname.h"
+#include "cgalex/io_paths.h"
+#include "cgalex/gaussian_map.h"
+#include "cgalex/merge_coplanar_faces.h"
+#include "cgalex/Paths.h"
 #include "cgalex/retriangulate_faces.h"
 #include "cgalex/soup_difference.h"
 #include "cgalex/soup_union.h"
 
-#include "Adder.h"
-#include "arr_gaussian_map.h"
 #include "Extended_polyhedron_items.h"
-#include "Face_normal_map.h"
-#include "gaussian_map.h"
 #include "Polyhedron_builder.h"
+
+namespace po = boost::program_options;
+namespace fs = std::filesystem;
+namespace PMP = CGAL::Polygon_mesh_processing;
+namespace params = CGAL::parameters;
+
+//! \brief obtains the default value of the input path
+const Path def_input_path() {
+  static const Path s_def_input_path(".");
+  return s_def_input_path;
+}
+
+//! \brief finds the input file.
+std::string find_input_file(const po::variables_map& vm, const std::string& filename)
+{ return find_file_fullname(vm["input-path"].as<Paths>(), filename); }
 
 /*! Splits a mesh into two halves using a specified plane.
  *
@@ -189,6 +210,7 @@ bool split_mesh(const Cube_& bbox, Mesh_& mesh_pos, Mesh_& mesh_neg, double offs
  */
 template <typename Mesh, typename OutputIterator, typename Kernel_>
 OutputIterator gaussian_maps(Mesh& mesh, OutputIterator oi, const Kernel_& kernel) {
+  std::cout << "gaussian_maps()\n";
   using Kernel = Kernel_;
 
   if (CGAL::is_strongly_convex_3(mesh, kernel)) {
@@ -212,12 +234,15 @@ OutputIterator gaussian_maps(Mesh& mesh, OutputIterator oi, const Kernel_& kerne
  */
 template <typename Mesh_, typename InputIterator, typename Arrangement_>
 void minkowski_sum_3(InputIterator begin, InputIterator end, const Arrangement_& gm2, Mesh_& ms) {
+  std::cout << "minkowski_sum_3()\n";
   using Arrangement = Arrangement_;
   using Mesh = Mesh_;
 
+  std::size_t i = 0;
   CGAL::Arr_face_overlay_traits<Arrangement, Arrangement, Arrangement, Adder> overlay_traits;
   bool first = true;
   for (auto it = begin; it != end; ++it) {
+    std::cout << "i: " << i++ << std::endl;
     Arrangement gm;
     CGAL::overlay(*it, gm2, gm, overlay_traits);
     using Halfedge_ds = typename Mesh::HalfedgeDS;
@@ -249,8 +274,21 @@ void extract_mesh(const Arrangement_& gm, Mesh& mesh) {
 
 /*!
  */
+template <typename Mesh_, typename Kernel_>
+void triangulate(Mesh_& mesh, const Kernel_& kernel) {
+  using Mesh = Mesh_;
+
+  auto np = params::geom_traits(kernel);
+  Face_normal_map<Mesh> normals;
+  CGAL::Polygon_mesh_processing::compute_face_normals(mesh, normals, np);
+  merge_coplanar_faces(mesh, normals, np);
+  triangulate_faces(mesh, normals);
+}
+
+/*!
+ */
 template <typename Mesh_, typename Arrangement_, typename Kernel_>
-void contract_mesh(Mesh_& bbox_pos, Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& contracted_pos,
+void contract_mesh(Mesh_& bbox_part, Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& contracted_part,
                    const Kernel_& kernel) {
   using Mesh = Mesh_;
   using Arrangement = Arrangement_;
@@ -260,7 +298,7 @@ void contract_mesh(Mesh_& bbox_pos, Mesh_& mesh, const Arrangement_& cube_gm, Me
 
   // Compute the difference between the bounding box and the mesh
   Mesh complement;
-  soup_difference(bbox_pos, mesh, complement);
+  soup_difference(bbox_part, mesh, complement);
 
 #if USING_SURFACE_MESH
   auto complement_normals = complement_sm.template add_property_map<Fd, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
@@ -270,7 +308,7 @@ void contract_mesh(Mesh_& bbox_pos, Mesh_& mesh, const Arrangement_& cube_gm, Me
   CGAL::Polygon_mesh_processing::compute_face_normals(complement, complement_normals, np);
   merge_coplanar_faces(complement, complement_normals, np);
   triangulate_faces(complement, complement_normals);
-  CGAL::draw(complement, "Complement");
+  // CGAL::draw(complement, "Complement");
 
   // Polyhedral_mesh complement;
   // CGAL::copy_face_graph(complement_sm, complement);
@@ -283,31 +321,22 @@ void contract_mesh(Mesh_& bbox_pos, Mesh_& mesh, const Arrangement_& cube_gm, Me
 
   // Compute the contracted part
 #if USING_SURFACE_MESH
-  CGAL::copy_face_graph(bbox_pos, contracted_pos);
+  CGAL::copy_face_graph(bbox_part, contracted_part);
 #else
-  contracted_pos = bbox_pos;
+  contracted_part = bbox_part;
 #endif
+
+  std::size_t i = 0;
   CGAL::Arr_face_overlay_traits<Arrangement, Arrangement, Arrangement, Adder> overlay_traits;
   for (auto it = gms1.begin(); it != gms1.end(); ++it) {
+    std::cout << "i: " << i++ << std::endl;
     Arrangement gm;
     CGAL::overlay(*it, cube_gm, gm, overlay_traits);
     Mesh ms;
     extract_mesh(gm, ms);
-    corefine_difference(contracted_pos, ms, contracted_pos);
+    corefine_difference(contracted_part, ms, contracted_part);
+    PMP::triangulate_faces(contracted_part);
   }
-}
-
-/*!
- */
-template <typename Mesh_, typename Kernel_>
-void triangulate(Mesh_& mesh, const Kernel_& kernel) {
-  using Mesh = Mesh_;
-
-  auto np = params::geom_traits(kernel);
-  Face_normal_map<Mesh> normals;
-  CGAL::Polygon_mesh_processing::compute_face_normals(mesh, normals, np);
-  merge_coplanar_faces(mesh, normals, np);
-  triangulate_faces(mesh, normals);
 }
 
 /*! Main entry.
@@ -319,15 +348,67 @@ int main(int argc, char* argv[]) {
   using Traits = CGAL::Polyhedron_traits_with_normals_3<Kernel>;
   using Polyhedral_mesh = CGAL::Polyhedron_3<Traits, Extended_polyhedron_items>;
   using Surface_mesh = CGAL::Surface_mesh<Point_3>;
-  using Fd = typename boost::graph_traits<Surface_mesh>::face_descriptor;
+
+  std::size_t verbose = 0;
+  auto do_draw = false;
+  double size = 0.1;
+  std::string input_dir = ".";
+  std::string fullname;
+
+  try {
+    // Define options
+    po::options_description desc("Allowed options");
+    desc.add_options()
+      ("help,h", "produce help message")
+      ("verbose,v", po::value<std::size_t>(&verbose)->implicit_value(1), "set verbosity level (0 = quiet")
+      ("size,s", po::value<double>(&size)->default_value(0.1), "set cube size")
+      ("draw,d", po::value<bool>(&do_draw)->implicit_value(false), "draw the meshes")
+      ("input-path,i", po::value<Paths>()->composing()->default_value({def_input_path()}), "input path")
+      ("filename", po::value<std::string>(), "First file name")
+    ;
+
+    po::positional_options_description p;
+    std::string filename;
+    p.add("filename", 1);
+
+    // Parse options
+    po::variables_map vm;
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::store(po::command_line_parser(argc, argv).options(desc).positional(p).run(), vm);
+    po::notify(vm);
+
+    // Help
+    if (vm.count("help")) {
+      std::cout << desc << "\n";
+      return 0;
+    }
+
+    // Verbosity: show directory being scanned
+    if (verbose > 0) {
+      std::cout << "Searching directory: " << input_dir << "\n";
+    }
+
+    if (! vm.count("filename")) {
+      // throw ...
+      std::cout << "Missing first filename \n";
+      return 1;
+    }
+    filename = vm["filename"].as<std::string>();
+    fullname = find_input_file(vm, filename);
+    if (fullname.empty()) {
+      throw std::logic_error(std::string("Error: Cannot find file ").append(filename));
+      return 1;
+    }
+  }
+  catch (std::exception& e) {
+    std::cout << "Exception: " << e.what() << "\n";
+    return 1;
+  }
 
   Kernel kernel;
 
-  const char* filename = (argc > 1) ? argv[1] : "star.off";
-
   // Generate an epsilon cube
   // double size = 1e-5;
-  double size = 0.2;
   auto cube_iso = make_iso_cube(size, kernel);
   auto cube_pm = to_mesh<Polyhedral_mesh>(cube_iso);
 
@@ -336,8 +417,8 @@ int main(int argc, char* argv[]) {
 
   // Construct the mesh.
   Polyhedral_mesh mesh;
-  auto rc1 = CGAL::IO::read_polygon_mesh(filename, mesh);
-  CGAL::draw(mesh, filename);
+  auto rc1 = CGAL::IO::read_polygon_mesh(fullname, mesh);
+  if (do_draw) CGAL::draw(mesh, fullname.c_str());
 
   // Compute the bounding box and split the mesh.
   CGAL::Bbox_3 bbox = CGAL::Polygon_mesh_processing::bbox(mesh);
@@ -348,13 +429,13 @@ int main(int argc, char* argv[]) {
   // Contract.
   Polyhedral_mesh contracted_pos, contracted_neg, contracted;
   contract_mesh(bbox_pos, mesh, cube_gm, contracted_pos, kernel);
-  CGAL::draw(contracted_pos, "Contracted pos");
+  if (do_draw) CGAL::draw(contracted_pos, "Contracted pos");
   contract_mesh(bbox_neg, mesh, cube_gm, contracted_neg, kernel);
-  CGAL::draw(contracted_pos, "Contracted neg");
+  if (do_draw) CGAL::draw(contracted_pos, "Contracted neg");
 
   corefine_union(contracted_pos, contracted_neg, contracted);
   triangulate(contracted, kernel);
-  CGAL::draw(contracted, "Contracted");
+  if (do_draw) CGAL::draw(contracted, "Contracted");
 
   // Expand.
   std::vector<Arrangement> gms;
@@ -363,7 +444,8 @@ int main(int argc, char* argv[]) {
   Polyhedral_mesh expanded;
   minkowski_sum_3<Polyhedral_mesh>(gms.begin(), gms.end(), cube_gm, expanded);
   triangulate(expanded, kernel);
-  CGAL::draw(expanded, "Expanded");
+  if (do_draw) CGAL::draw(expanded, "Expanded");
+  CGAL::IO::write_polygon_mesh("expanded.off", expanded, CGAL::parameters::stream_precision(17));
 
   return 0;
 }
