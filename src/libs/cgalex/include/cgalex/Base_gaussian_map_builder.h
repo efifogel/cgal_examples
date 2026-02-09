@@ -3,11 +3,19 @@
 
 #include <list>
 
-#include "cgalex/arr_gaussian_map.h"
 #include "cgalex/make_x_monotone.h"
 
+template <typename Arrangement_>
 class Base_gaussian_map_builder {
 public:
+  using Arrangement = Arrangement_;
+  using Geom_traits = typename Arrangement::Geometry_traits_2;
+  using Point = typename Geom_traits::Point_2;
+  using X_monotone_curve = typename Geom_traits::X_monotone_curve_2;
+  using Vertex_handle = typename Arrangement::Vertex_handle;
+  using Halfedge_handle = typename Arrangement::Halfedge_handle;
+  using Face_handle = typename Arrangement::Face_handle;
+
   /*! Construct
    */
   Base_gaussian_map_builder(Arrangement& gm) : m_gm(gm) {}
@@ -25,8 +33,7 @@ protected:
    * \pre the Gaussian map is empty.
    */
   template <typename Vector_3, typename OutputIterator>
-  OutputIterator insert(const Vector_3& normal1, const Vector_3& normal2,
-                        OutputIterator oi);
+  OutputIterator insert(const Vector_3& normal1, const Vector_3& normal2, OutputIterator oi);
 
   /*! Insert a great arc whose angle is less than Pi and is represented by two
    * normals into the GM. Each normal defines an end point of the great arc.
@@ -38,8 +45,7 @@ protected:
    * \param vertex the handle of the vertex that is the source of the arc
    */
   template <typename Vector_3, typename OutputIterator>
-  OutputIterator insert(const Vector_3& normal1, Vertex_handle vertex1,
-                        const Vector_3& normal2, OutputIterator oi);
+  OutputIterator insert(const Vector_3& normal1, Vertex_handle vertex1, const Vector_3& normal2, OutputIterator oi);
 
   /*! Insert a great arc whose angle is less than Pi and is represented by two
    * normals into the GM. Each normal defines an end point of the great arc.
@@ -50,8 +56,7 @@ protected:
    * represented by normal1 toward the endpoint represented by normal2
    */
   template <typename Vector_3, typename OutputIterator>
-  OutputIterator insert(const Vector_3& normal1,
-                        const Vector_3& normal2, Vertex_handle vertex2,
+  OutputIterator insert(const Vector_3& normal1, const Vector_3& normal2, Vertex_handle vertex2,
                         OutputIterator oi);
 
   /*! Insert a great arc whose angle is less than Pi and is represented by two
@@ -70,8 +75,10 @@ protected:
 };
 
 //! \brief inserts a great arc represented by two normals into the GM.
+template <typename Arr>
 template <typename Vector_3, typename OutputIterator>
-OutputIterator Base_gaussian_map_builder::insert(const Vector_3& normal1, const Vector_3& normal2, OutputIterator oi) {
+OutputIterator
+Base_gaussian_map_builder<Arr>::insert(const Vector_3& normal1, const Vector_3& normal2, OutputIterator oi) {
   using Make_x_monotone_result = std::variant<Point, X_monotone_curve>;
   const auto& traits = *(m_gm.geometry_traits());
   std::list<Make_x_monotone_result> x_objects;
@@ -89,9 +96,10 @@ OutputIterator Base_gaussian_map_builder::insert(const Vector_3& normal1, const 
 }
 
 //! \brief inserts a great arc represented by two normals starting at a vertex.
+template <typename Arr>
 template <typename Vector_3, typename OutputIterator>
-OutputIterator Base_gaussian_map_builder::insert(const Vector_3& normal1, Vertex_handle vertex1,
-                                                 const Vector_3& normal2, OutputIterator oi) {
+OutputIterator Base_gaussian_map_builder<Arr>::insert(const Vector_3& normal1, Vertex_handle vertex1,
+                                                      const Vector_3& normal2, OutputIterator oi) {
   using Make_x_monotone_result = std::variant<Point, X_monotone_curve>;
   const auto& traits = *(m_gm.geometry_traits());
   std::list<Make_x_monotone_result> x_objects;
@@ -109,9 +117,10 @@ OutputIterator Base_gaussian_map_builder::insert(const Vector_3& normal1, Vertex
 }
 
 //! \brief insert a great arc represented by two normals ending at a vertex.
+template <typename Arr>
 template <typename Vector_3, typename OutputIterator>
-OutputIterator Base_gaussian_map_builder::insert(const Vector_3& normal1, const Vector_3& normal2,
-                                                 Vertex_handle vertex2, OutputIterator oi) {
+OutputIterator Base_gaussian_map_builder<Arr>::insert(const Vector_3& normal1, const Vector_3& normal2,
+                                                      Vertex_handle vertex2, OutputIterator oi) {
   using Make_x_monotone_result = std::variant<Point, X_monotone_curve>;
   const auto& traits = *(m_gm.geometry_traits());
   std::list<Make_x_monotone_result> x_objects;
@@ -137,9 +146,11 @@ OutputIterator Base_gaussian_map_builder::insert(const Vector_3& normal1, const 
 }
 
 //! \brief inserts a great arc represented by two normals between vertices.
+template <typename Arr>
 template <typename Vector_3,  typename OutputIterator>
-OutputIterator Base_gaussian_map_builder::insert(const Vector_3& normal1, Vertex_handle vertex1,
-                                                 const Vector_3& normal2, Vertex_handle vertex2, OutputIterator oi) {
+OutputIterator Base_gaussian_map_builder<Arr>::insert(const Vector_3& normal1, Vertex_handle vertex1,
+                                                      const Vector_3& normal2, Vertex_handle vertex2,
+                                                      OutputIterator oi) {
   using Make_x_monotone_result = std::variant<Point, X_monotone_curve>;
   const auto& traits = *(m_gm.geometry_traits());
   std::list<Make_x_monotone_result> x_objects;

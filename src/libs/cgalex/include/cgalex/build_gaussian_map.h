@@ -12,7 +12,8 @@
 namespace cp = CGAL::parameters;
 namespace ci = CGAL::internal_np;
 
-template <typename Graph, typename FaceNormalMap, typename NamedParameters = cp::Default_named_parameters>
+template <typename Graph, typename FaceNormalMap, typename Arrangement,
+          typename NamedParameters = cp::Default_named_parameters>
 void build_gaussian_map(Graph& g, const FaceNormalMap& normals, Arrangement& gm,
                         const NamedParameters& np = cp::default_values()) {
   using Face_normal_map = FaceNormalMap;

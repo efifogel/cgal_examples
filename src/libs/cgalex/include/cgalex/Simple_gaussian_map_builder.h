@@ -9,67 +9,71 @@
 
 #include <CGAL/Kernel_traits.h>
 
-#include "cgalex/arr_gaussian_map.h"
 #include "cgalex/Base_gaussian_map_builder.h"
 
-template <typename Graph, typename FaceNormalMap, typename VertexPointMap>
-class Simple_gaussian_map_builder : public Base_gaussian_map_builder {
+template <typename Arrangement_, typename Graph_, typename FaceNormalMap, typename VertexPointMap>
+class Simple_gaussian_map_builder : public Base_gaussian_map_builder<Arrangement_> {
 public:
+  using Arrangement = Arrangement_;
+  using Graph = Graph_;
+  using Face_normal_map = FaceNormalMap;
+  using Vertex_point_map = VertexPointMap;
+
+  using Vertex_handle = typename Arrangement::Vertex_handle;
+  using Halfedge_handle = typename Arrangement::Halfedge_handle;
+  using Face_handle = typename Arrangement::Face_handle;
   using Graph_traits = typename boost::graph_traits<Graph>;
   using vertex_descriptor = typename Graph_traits::vertex_descriptor;
   using halfedge_descriptor = typename Graph_traits::halfedge_descriptor;
   using face_descriptor = typename Graph_traits::face_descriptor;
-  using halfedge_around_target_circulator =
-    CGAL::Halfedge_around_target_circulator<Graph>;
+  using halfedge_around_target_circulator = CGAL::Halfedge_around_target_circulator<Graph>;
   using Point_3 = typename boost::property_traits<VertexPointMap>::value_type;
   using Kernel = typename CGAL::Kernel_traits<Point_3>::Kernel;
   using Vector_3 = typename Kernel::Vector_3;
 
+  using Base = Base_gaussian_map_builder<Arrangement>;
+
   /*! Construct
    */
-  Simple_gaussian_map_builder(Arrangement& gm, const FaceNormalMap& normals,
-                              const VertexPointMap& points);
+  Simple_gaussian_map_builder(Arrangement& gm, const Face_normal_map& normals, const Vertex_point_map& points);
 
   /*! Build the Gaussian map of a graph.
    * \param src the graph vertex currently processed
    * \param graph the graph
    * \param first_time true if the invocation to this function is the first
    */
-  void operator()(const Graph& graph, vertex_descriptor src,
-                  bool first_time = true);
+  void operator()(const Graph& graph, vertex_descriptor src, bool first_time = true);
 
 private:
   /*! Rocesses a graph halfedge
    */
-  void process(const Graph& g, vertex_descriptor src,
-               halfedge_around_target_circulator hec,
+  void process(const Graph& g, vertex_descriptor src, halfedge_around_target_circulator hec,
                halfedge_around_target_circulator next_hec, bool first_time);
 
   // Data memebers
-  const FaceNormalMap& m_normals;
-  const VertexPointMap& m_points;
+  const Face_normal_map& m_normals;
+  const Vertex_point_map& m_points;
   std::unordered_map<vertex_descriptor, bool> m_vprocessed;
   std::unordered_map<halfedge_descriptor, bool> m_hprocessed;
   std::unordered_map<face_descriptor, Vertex_handle> m_vertex_handles;
 };
 
 //! \brief constructs
-template <typename Graph, typename FaceNormalMap, typename VertexPointMap>
-Simple_gaussian_map_builder<Graph, FaceNormalMap, VertexPointMap>::
-Simple_gaussian_map_builder(Arrangement& gm, const FaceNormalMap& normals,
-                            const VertexPointMap& points) :
-  Base_gaussian_map_builder(gm),
+template <typename Arr, typename G, typename Fnm, typename Vpm>
+Simple_gaussian_map_builder<Arr, G, Fnm, Vpm>::Simple_gaussian_map_builder(Arrangement& gm,
+                                                                           const Face_normal_map& normals,
+                                                                           const Vertex_point_map& points) :
+  Base(gm),
   m_normals(normals),
   m_points(points)
 {}
 
 //! \brief processes a graph halfedge
-template <typename Graph, typename FaceNormalMap, typename VertexPointMap>
-void Simple_gaussian_map_builder<Graph, FaceNormalMap, VertexPointMap>::
-process(const Graph& g, vertex_descriptor src,
-        halfedge_around_target_circulator hec,
-        halfedge_around_target_circulator next_hec,
-        bool first_time) {
+template <typename Arr, typename G, typename Fnm, typename Vpm>
+void Simple_gaussian_map_builder<Arr, G, Fnm, Vpm>::process(const Graph& g, vertex_descriptor src,
+                                                            halfedge_around_target_circulator hec,
+                                                            halfedge_around_target_circulator next_hec,
+                                                            bool first_time) {
   Vertex_handle invalid_vertex;
 
   const auto& normal1 = get(m_normals, CGAL::face(*hec, g));
@@ -79,7 +83,7 @@ process(const Graph& g, vertex_descriptor src,
   // x-monotone curves. The halfedges of both are obtained.
   std::list<Halfedge_handle> hes;
   if (first_time) {
-    insert(normal1, normal2, std::back_inserter(hes));
+    this->insert(normal1, normal2, std::back_inserter(hes));
     m_vertex_handles[CGAL::face(*hec, g)] = hes.front()->source();
     m_vertex_handles[CGAL::face(*next_hec, g)] = hes.back()->target();
     return;
@@ -88,7 +92,7 @@ process(const Graph& g, vertex_descriptor src,
   Vertex_handle v1 = m_vertex_handles[CGAL::face(*hec, g)];
   Vertex_handle v2 = m_vertex_handles[CGAL::face(*next_hec, g)];
   if ((v1 != invalid_vertex) && (v2 != invalid_vertex)) {
-    insert(normal1, v1, normal2, v2, std::back_inserter(hes));
+    this->insert(normal1, v1, normal2, v2, std::back_inserter(hes));
     Face_handle src_face = hes.front()->twin()->face();
     Face_handle trg_face = hes.front()->face();
     src_face->set_data(get(m_points, src));
@@ -96,12 +100,12 @@ process(const Graph& g, vertex_descriptor src,
     return;
   }
   if (v1 != invalid_vertex) {
-    insert(normal1, v1, normal2, std::back_inserter(hes));
+    this->insert(normal1, v1, normal2, std::back_inserter(hes));
     m_vertex_handles[CGAL::face(*next_hec, g)] = hes.back()->target();
     return;
   }
   if (v2 != invalid_vertex) {
-    insert(normal1, normal2, v2, std::back_inserter(hes));
+    this->insert(normal1, normal2, v2, std::back_inserter(hes));
     m_vertex_handles[CGAL::face(*hec, g)] = hes.front()->source();
     return;
   }
@@ -109,9 +113,8 @@ process(const Graph& g, vertex_descriptor src,
 }
 
 //! \brief processes a graph vertex recursively constructing the GM
-template <typename Graph, typename FaceNormalMap, typename VertexPointMap>
-void Simple_gaussian_map_builder<Graph, FaceNormalMap, VertexPointMap>::
-operator()(const Graph& g, vertex_descriptor src, bool first_time) {
+template <typename Arr, typename G, typename Fnm, typename Vpm>
+void Simple_gaussian_map_builder<Arr, G, Fnm, Vpm>::operator()(const Graph& g, vertex_descriptor src, bool first_time) {
   CGAL::Halfedge_around_target_circulator<Graph> hec(src, g);
   CGAL_assertion(CGAL::circulator_size(hec) >= 3);
 

@@ -8,14 +8,24 @@
 #include "cgalex/find_square_width.h"
 #include "cgalex/square_distance.h"
 
-std::pair<std::array<Kernel::FT, 3>, std::array<Kernel::Direction_3, 3>>
-minimum_bounding_box(const Arrangement& gm, const Kernel& kernel) {
-  std::array<Kernel::FT, 3> mbb_sizes;
-  std::array<Kernel::Direction_3, 3> mbb_directions;
+template <typename Arrangement_, typename Kernel_>
+std::pair<std::array<typename Kernel_::FT, 3>, std::array<typename Kernel_::Direction_3, 3>>
+minimum_bounding_box(const Arrangement_& gm, const Kernel_& kernel) {
+  using Arrangement = Arrangement_;
+  using Kernel = Kernel_;
 
-  using Vertex_const_handle = Arrangement::Vertex_const_handle;
-  using Halfedge_const_handle = Arrangement::Halfedge_const_handle;
-  using Face_const_handle = Arrangement::Face_const_handle;
+  using FT = typename Kernel::FT;
+  using Point_3 = typename Kernel::Point_3;
+  using Direction_3 = typename Kernel::Direction_3;
+  using Line_3 = typename Kernel::Line_3;
+  using Vector_3 = typename Kernel::Vector_3;
+
+  std::array<FT, 3> mbb_sizes;
+  std::array<Direction_3, 3> mbb_directions;
+
+  using Vertex_const_handle = typename Arrangement::Vertex_const_handle;
+  using Halfedge_const_handle = typename Arrangement::Halfedge_const_handle;
+  using Face_const_handle = typename Arrangement::Face_const_handle;
 
   auto ctr_plane = kernel.construct_plane_3_object();
   auto ctr_line = kernel.construct_line_3_object();
@@ -29,7 +39,7 @@ minimum_bounding_box(const Arrangement& gm, const Kernel& kernel) {
   auto plane1 = ctr_plane(CGAL::ORIGIN, mbb_directions[0]);
   mbb_sizes[1] = 0;
   auto cmp1 = [&](const Point_3& p) {
-    Kernel::Vector_3 v(CGAL::ORIGIN, p);
+    Vector_3 v(CGAL::ORIGIN, p);
     auto sw = v.squared_length();
     if (sw < mbb_sizes[1]) {
       mbb_sizes[1] = sw;
@@ -39,14 +49,14 @@ minimum_bounding_box(const Arrangement& gm, const Kernel& kernel) {
   std::function<void(const Point_3&)> set1;
   auto init1 = [&](const Point_3& p) {
     set1 = cmp1;
-    Kernel::Vector_3 v(CGAL::ORIGIN, p);
+    Vector_3 v(CGAL::ORIGIN, p);
     mbb_sizes[1] = v.squared_length();
     mbb_directions[1] = v.direction();
   };
   set1 = init1;
 
   std::for_each(gm.vertices_begin(), gm.vertices_end(),
-                [&](const Arrangement::Vertex& vertex) {
+                [&](const typename Arrangement::Vertex& vertex) {
                   if (vertex.degree() < 3) return;
                   const auto& dir = vertex.point();
                   auto e(vertex.incident_halfedges());
@@ -54,7 +64,7 @@ minimum_bounding_box(const Arrangement& gm, const Kernel& kernel) {
                   auto plane = ctr_plane(q, dir);
                   auto res = intersect(plane, plane1);
                   if (! res) return;
-                  const auto* lp = std::get_if<Kernel::Line_3>(&*res);
+                  const auto* lp = std::get_if<Line_3>(&*res);
                   if (! lp) return;
                   auto p = lp->projection(CGAL::ORIGIN);
                   set1(p);

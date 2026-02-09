@@ -13,6 +13,7 @@
 
 #include <CGAL/Arr_overlay_2.h>
 #include <CGAL/Arr_default_overlay_traits.h>
+#include <CGAL/Arr_spherical_topology_traits_2.h>
 #include <CGAL/boost/graph/helpers.h>
 #include <CGAL/boost/graph/selection.h>
 #include <CGAL/convex_hull_3.h>

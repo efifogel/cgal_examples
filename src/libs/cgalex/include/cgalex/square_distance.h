@@ -3,15 +3,12 @@
 
 #include <CGAL/enum.h>
 
-#include "cgalex/arr_gaussian_map.h"
-
 /*! Given a halfedge circulator around a vertex of a Gaussian map, compute the
  * sqaure distance between the origin and the facet of the primal polyhedron
  * that is dual to the vertex.
  */
 template <typename HalfedgeAroundVertexCirculator, typename Kernel>
-typename Kernel::FT
-square_distance(HalfedgeAroundVertexCirculator hec, const Kernel& kernel) {
+typename Kernel::FT square_distance(HalfedgeAroundVertexCirculator hec, const Kernel& kernel) {
   const auto& p1 = hec++->face()->data();
   const auto& p2 = hec++->face()->data();
   const auto& p3 = hec->face()->data();
@@ -27,8 +24,7 @@ square_distance(HalfedgeAroundVertexCirculator hec, const Kernel& kernel) {
  */
 template <typename HalfedgeHandle, typename Kernel>
 typename Kernel::FT
-square_distance(const typename Kernel::Direction_3& direction,
-                HalfedgeHandle he, const Kernel& kernel) {
+square_distance(const typename Kernel::Direction_3& direction, HalfedgeHandle he, const Kernel& kernel) {
   const auto& q = he->face()->data();
   auto plane = kernel.construct_plane_3_object()(q, direction);
   typename Kernel::Point_3 origin(CGAL::ORIGIN);
