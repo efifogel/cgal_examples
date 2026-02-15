@@ -13,7 +13,6 @@
 #ifndef CGAL_PMP_BOOLEAN_OPERATIONS_3_H
 #define CGAL_PMP_BOOLEAN_OPERATIONS_3_H
 
-#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/Polygon_mesh_processing/autorefinement.h>
 #include <CGAL/Polygon_mesh_processing/internal/Corefinement/predicates.h>
 
@@ -249,7 +248,9 @@ select(const std::vector<Exact_point>& points,
     auto less = [&tref, &pref, &points, &triangles, &p0, &p1](const std::pair<int, TID>& e1,
                                                               const std::pair<int, TID>& e2)
     {
-      using EPECK = CGAL::Exact_predicates_exact_constructions_kernel;
+      // using EPECK = CGAL::Exact_predicates_exact_constructions_kernel;
+      using Exact_kernel = typename CGAL::Kernel_traits<Exact_point>::Kernel;
+
       // handling coplanar
       //TODO: we will make several time the comparision with the same point, not sure if it is coslty. Maybe group them?
       if (triangles[e1.second][e1.first]==triangles[e2.second][e2.first])
@@ -259,9 +260,9 @@ select(const std::vector<Exact_point>& points,
       if (triangles[e2.second][e2.first]==triangles[tref.second][tref.first])
         return false;
 
-      return pred::sorted_around_edge<EPECK>(p0, p1, pref,
-                                             points[triangles[e2.second][e2.first]],
-                                             points[triangles[e1.second][e1.first]]);
+      return pred::sorted_around_edge<Exact_kernel>(p0, p1, pref,
+                                                    points[triangles[e2.second][e2.first]],
+                                                    points[triangles[e1.second][e1.first]]);
     };
 
 #ifdef CGAL_BO_AUTOREF_DEBUG
@@ -445,8 +446,9 @@ select(const std::vector<Exact_point>& points,
         // TODO: this is a bit naive but works. To begin with, we can use a better do-intersect + use bbox to filter distances
         std::vector<std::size_t>& subtri=triangles_of_intersect_per_cc[cc];
         const Exact_point& pt = points[triangles[one_triangle_per_cc[cc]][0]];
-        Exact_predicates_exact_constructions_kernel::Ray_3 ray(pt, Exact_predicates_exact_constructions_kernel::Vector_3(0.,0.,1.));
-        using T3 = Exact_predicates_exact_constructions_kernel::Triangle_3;
+        using Exact_kernel = typename CGAL::Kernel_traits<Exact_point>::Kernel;
+        typename Exact_kernel::Ray_3 ray(pt, Exact_predicates_exact_constructions_kernel::Vector_3(0.,0.,1.));
+        using T3 = typename Exact_kernel::Triangle_3;
         std::vector<std::pair<std::size_t,T3>> to_sort;
         for (std::size_t tid : subtri)
         {
