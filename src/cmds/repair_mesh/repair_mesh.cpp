@@ -1,4 +1,5 @@
 #include <vector>
+#include <type_traits>
 
 #include <boost/program_options.hpp>
 
@@ -275,17 +276,49 @@ void extract_mesh(const Arrangement_& gm, Mesh& mesh) {
   PMP::triangulate_faces(mesh);
 }
 
+// --- Polyhedron_3 Detection ---
+// Matches the specific CGAL signature: Traits, Items, HDS (template), and Alloc
+template <typename T, typename I, template <typename, typename, typename> class H, typename A>
+std::true_type is_polyhedron_impl(const CGAL::Polyhedron_3<T, I, H, A>*);
+std::false_type is_polyhedron_impl(...);
+
+// --- Surface_mesh Detection ---
+// Uses a variadic pack because Surface_mesh parameters are strictly types
+template <typename... Args>
+std::true_type is_surface_mesh_impl(const CGAL::Surface_mesh<Args...>*);
+std::false_type is_surface_mesh_impl(...);
+
+// --- Public Traits ---
+template <typename T>
+struct is_polyhedron : decltype(is_polyhedron_impl(std::declval<std::decay_t<T>*>())) {};
+
+template <typename T>
+struct is_surface_mesh : decltype(is_surface_mesh_impl(std::declval<std::decay_t<T>*>())) {};
+
 /*!
  */
 template <typename Mesh_, typename Kernel_>
-void triangulate(Mesh_& mesh, const Kernel_& kernel) {
+void compute_normals_and_retriangulate(Mesh_& mesh, const Kernel_& kernel) {
   using Mesh = Mesh_;
+  using Kernel = Kernel_;
 
   auto np = params::geom_traits(kernel);
-  Face_normal_map<Mesh> normals;
-  CGAL::Polygon_mesh_processing::compute_face_normals(mesh, normals, np);
-  merge_coplanar_faces(mesh, normals, np);
-  triangulate_faces(mesh, normals);
+
+  if constexpr (is_polyhedron<Mesh>::value) {
+    Face_normal_map<Mesh> normals;
+    CGAL::Polygon_mesh_processing::compute_face_normals(mesh, normals, np);
+    retriangulate_faces(mesh, normals, np);
+  }
+  else if constexpr (is_surface_mesh<Mesh>::value) {
+    using Vector_3 = typename Kernel::Vector_3;
+    using Fd = typename boost::graph_traits<Mesh>::face_descriptor;
+    auto normals = mesh.template add_property_map<Fd, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+    CGAL::Polygon_mesh_processing::compute_face_normals(mesh, normals, np);
+    retriangulate_faces(mesh, normals, np);
+  }
+  else {
+    std::cout << "Error: unrecognized representation\n";
+  }
 }
 
 /*!
@@ -302,16 +335,7 @@ void contract_mesh(Mesh_& bbox_part, Mesh_& mesh, const Arrangement_& cube_gm, M
   // Compute the difference between the bounding box and the mesh
   Mesh complement;
   soup_difference(bbox_part, mesh, complement);
-
-#if USING_SURFACE_MESH
-  auto complement_normals = complement_sm.template add_property_map<Fd, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
-#else
-  Face_normal_map<Mesh> complement_normals;
-#endif
-  CGAL::Polygon_mesh_processing::compute_face_normals(complement, complement_normals, np);
-  merge_coplanar_faces(complement, complement_normals, np);
-  triangulate_faces(complement, complement_normals);
-  // CGAL::draw(complement, "Complement");
+  compute_normals_and_retriangulate(complement, kernel);
 
   // Polyhedral_mesh complement;
   // CGAL::copy_face_graph(complement_sm, complement);
@@ -365,6 +389,7 @@ using Face_handle = Arrangement::Face_handle;
   std::size_t verbose = 0;
   auto do_draw = false;
   double size = 0.1;
+  double offset = 1e-5;
   std::string input_dir = ".";
   std::string fullname;
 
@@ -373,11 +398,12 @@ using Face_handle = Arrangement::Face_handle;
     po::options_description desc("Allowed options");
     desc.add_options()
       ("help,h", "produce help message")
-      ("verbose,v", po::value<std::size_t>(&verbose)->implicit_value(1), "set verbosity level (0 = quiet")
-      ("size,s", po::value<double>(&size)->default_value(0.1), "set cube size")
       ("draw,d", po::value<bool>(&do_draw)->implicit_value(false), "draw the meshes")
       ("input-path,i", po::value<Paths>()->composing()->default_value({def_input_path()}), "input path")
       ("filename", po::value<std::string>(), "First file name")
+      ("offset,o", po::value<double>(&offset)->default_value(1e-5), "bounding box offset")
+      ("size,s", po::value<double>(&size)->default_value(0.1), "set cube size")
+      ("verbose,v", po::value<std::size_t>(&verbose)->implicit_value(1), "set verbosity level (0 = quiet")
     ;
 
     po::positional_options_description p;
@@ -437,17 +463,17 @@ using Face_handle = Arrangement::Face_handle;
   CGAL::Bbox_3 bbox = CGAL::Polygon_mesh_processing::bbox(mesh);
   std::cout << bbox << std::endl;
   Polyhedral_mesh bbox_pos, bbox_neg;
-  split_mesh(bbox, bbox_pos, bbox_neg, 1e-5);
+  split_mesh(bbox, bbox_pos, bbox_neg, offset);
 
   // Contract.
   Polyhedral_mesh contracted_pos, contracted_neg, contracted;
   contract_mesh(bbox_pos, mesh, cube_gm, contracted_pos, kernel);
   if (do_draw) CGAL::draw(contracted_pos, "Contracted pos");
   contract_mesh(bbox_neg, mesh, cube_gm, contracted_neg, kernel);
-  if (do_draw) CGAL::draw(contracted_pos, "Contracted neg");
+  if (do_draw) CGAL::draw(contracted_neg, "Contracted neg");
 
   corefine_union(contracted_pos, contracted_neg, contracted);
-  triangulate(contracted, kernel);
+  compute_normals_and_retriangulate(contracted, kernel);
   if (do_draw) CGAL::draw(contracted, "Contracted");
 
   // Expand.
@@ -456,7 +482,7 @@ using Face_handle = Arrangement::Face_handle;
   std::cout << "contracted decomposed into " << gms.size() << " pieces\n";
   Polyhedral_mesh expanded;
   minkowski_sum_3<Polyhedral_mesh>(gms.begin(), gms.end(), cube_gm, expanded);
-  triangulate(expanded, kernel);
+  compute_normals_and_retriangulate(expanded, kernel);
   if (do_draw) CGAL::draw(expanded, "Expanded");
   CGAL::IO::write_polygon_mesh("expanded.off", expanded, CGAL::parameters::stream_precision(17));
 
