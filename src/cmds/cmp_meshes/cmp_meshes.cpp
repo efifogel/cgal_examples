@@ -242,7 +242,7 @@ std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, double toleran
   auto tmesh1 = mesh1;
   using Vector_3 = typename Kernel::Vector_3;
   auto optional_map1 = mesh1.property_map<face_descriptor, Vector_3>("f:normals");
-  CGAL_assertion(optional_map1);
+  CGAL_assertion(optional_map1.has_value());
   Mesh::Property_map<face_descriptor, Vector_3> normals1 = *optional_map1;
   triangulate_faces(tmesh1, normals1, params::geom_traits(kernel));
   CGAL::IO::write_polygon_mesh("m1.off", mesh1, CGAL::parameters::stream_precision(17));
@@ -250,7 +250,7 @@ std::vector<Result> compare(const Mesh& mesh1, const Mesh& mesh2, double toleran
   auto tmesh2 = mesh2;
   using Vector_3 = typename Kernel::Vector_3;
   auto optional_map2 = mesh2.property_map<face_descriptor, Vector_3>("f:normals");
-  CGAL_assertion(optional_map2);
+  CGAL_assertion(optional_map2.has_value());
   Mesh::Property_map<face_descriptor, Vector_3> normals2 = *optional_map2;
   triangulate_faces(tmesh2, normals2, params::geom_traits(kernel));
   CGAL::IO::write_polygon_mesh("m2.off", mesh2, CGAL::parameters::stream_precision(17));
