@@ -1,5 +1,6 @@
 #include <vector>
 #include <type_traits>
+#include <filesystem>
 
 #include <boost/program_options.hpp>
 
@@ -25,6 +26,7 @@
 #include <CGAL/Polygon_mesh_processing/bbox.h>
 #include <CGAL/Polygon_mesh_processing/clip.h>
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
+#include <CGAL/Polygon_mesh_processing/connected_components.h>
 #include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Surface_mesh.h>
@@ -323,47 +325,66 @@ void compute_normals_and_retriangulate(Mesh_& mesh, const Kernel_& kernel) {
 
 /*!
  */
-template <typename Mesh_, typename Arrangement_, typename Kernel_>
-void contract_mesh(Mesh_& bbox_part, Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& contracted_part,
-                   const Kernel_& kernel) {
+template <typename Mesh_, typename Arrangement_, typename InputIterator>
+void subtract(Mesh_& mesh, const Arrangement_& cube_gm, InputIterator begin, InputIterator end) {
   using Mesh = Mesh_;
   using Arrangement = Arrangement_;
-  using Kernel = Kernel_;
-
-  auto np = params::geom_traits(kernel);
-
-  // Compute the difference between the bounding box and the mesh
-  Mesh complement;
-  soup_difference(bbox_part, mesh, complement);
-  compute_normals_and_retriangulate(complement, kernel);
-
-  // Polyhedral_mesh complement;
-  // CGAL::copy_face_graph(complement_sm, complement);
-  // CGAL::draw(complement, "Complement");
-
-  // Decompose the difference into convex pieces and compute their Gaussian maps
-  std::vector<Arrangement> gms1;
-  gaussian_maps<Arrangement>(complement, std::back_inserter(gms1), kernel);
-  std::cout << "Complement decomposed into " << gms1.size() << " pieces\n";
-
-  // Compute the contracted part
-#if USING_SURFACE_MESH
-  CGAL::copy_face_graph(bbox_part, contracted_part);
-#else
-  contracted_part = bbox_part;
-#endif
 
   std::size_t i = 0;
   CGAL::Arr_face_overlay_traits<Arrangement, Arrangement, Arrangement, Adder> overlay_traits;
-  for (auto it = gms1.begin(); it != gms1.end(); ++it) {
+  for (auto it = begin; it != end; ++it) {
     std::cout << "i: " << i++ << std::endl;
     Arrangement gm;
     CGAL::overlay(*it, cube_gm, gm, overlay_traits);
     Mesh ms;
     extract_mesh(gm, ms);
-    corefine_difference(contracted_part, ms, contracted_part);
-    PMP::triangulate_faces(contracted_part);
+    corefine_difference(mesh, ms, mesh);
+    PMP::triangulate_faces(mesh);
   }
+}
+
+/*!
+ */
+template <typename Mesh_, typename Arrangement_, typename Kernel_>
+void repair_cc(Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& expanded, const Kernel_& kernel,
+               double offset = 1e-5, bool do_draw = false) {
+  using Mesh = Mesh_;
+  using Arrangement = Arrangement_;
+  using Kernel = Kernel_;
+
+  // Compute the bounding box and split the mesh.
+  CGAL::Bbox_3 bbox = CGAL::Polygon_mesh_processing::bbox(mesh);
+  std::cout << bbox << std::endl;
+  Mesh bbox_pos, bbox_neg;
+  split_mesh(bbox, bbox_pos, bbox_neg, offset);
+
+  // Contract.
+
+  // Compute the difference between the bounding box and the mesh
+  Mesh complement_pos, complement_neg;
+  soup_difference(bbox_pos, mesh, complement_pos);
+  compute_normals_and_retriangulate(complement_pos, kernel);
+  soup_difference(bbox_neg, mesh, complement_neg);
+  compute_normals_and_retriangulate(complement_neg, kernel);
+
+  // Decompose the difference into convex pieces and compute their Gaussian maps
+  std::vector<Arrangement> contracted_gms;
+  gaussian_maps<Arrangement>(complement_pos, std::back_inserter(contracted_gms), kernel);
+  gaussian_maps<Arrangement>(complement_neg, std::back_inserter(contracted_gms), kernel);
+  std::cout << "Complement decomneged into " << contracted_gms.size() << " pieces\n";
+
+  // Compute the contracted mesh
+  auto contracted = to_mesh<Mesh>(bbox);
+  subtract(contracted, cube_gm, contracted_gms.begin(), contracted_gms.end());
+  compute_normals_and_retriangulate(contracted, kernel);
+  if (do_draw) CGAL::draw(contracted, "Contracted");
+
+  // Expand.
+  std::vector<Arrangement> expanded_gms;
+  gaussian_maps<Arrangement>(contracted, std::back_inserter(expanded_gms), kernel);
+  std::cout << "contracted decomposed into " << expanded_gms.size() << " pieces\n";
+  minkowski_sum_3<Mesh>(expanded_gms.begin(), expanded_gms.end(), cube_gm, expanded);
+  compute_normals_and_retriangulate(expanded, kernel);
 }
 
 /*! Main entry.
@@ -459,32 +480,30 @@ using Face_handle = Arrangement::Face_handle;
   auto rc1 = CGAL::IO::read_polygon_mesh(fullname, mesh);
   if (do_draw) CGAL::draw(mesh, fullname.c_str());
 
-  // Compute the bounding box and split the mesh.
-  CGAL::Bbox_3 bbox = CGAL::Polygon_mesh_processing::bbox(mesh);
-  std::cout << bbox << std::endl;
-  Polyhedral_mesh bbox_pos, bbox_neg;
-  split_mesh(bbox, bbox_pos, bbox_neg, offset);
+  using Facet_handle = Polyhedral_mesh::Facet_handle;
+  std::map<Facet_handle, std::size_t> face_component_map;
+  auto num_ccs = PMP::connected_components(mesh, boost::make_assoc_property_map(face_component_map));
 
-  // Contract.
-  Polyhedral_mesh contracted_pos, contracted_neg, contracted;
-  contract_mesh(bbox_pos, mesh, cube_gm, contracted_pos, kernel);
-  if (do_draw) CGAL::draw(contracted_pos, "Contracted pos");
-  contract_mesh(bbox_neg, mesh, cube_gm, contracted_neg, kernel);
-  if (do_draw) CGAL::draw(contracted_neg, "Contracted neg");
+  Polyhedral_mesh repaired_mesh;
+  if (num_ccs == 1) {
+    repair_cc(mesh, cube_gm, repaired_mesh, kernel, offset, do_draw);
+    if (do_draw) CGAL::draw(repaired_mesh, "repaired cc");
+  }
+  else {
+    std::vector<Polyhedral_mesh> ccs;
+    ccs.reserve(num_ccs);
+    PMP::split_connected_components(mesh, ccs);
+    for (auto& cc : ccs) {
+      Polyhedral_mesh repaired_cc;
+      repair_cc(cc, cube_gm, repaired_cc, kernel, offset, do_draw);
+      if (do_draw) CGAL::draw(repaired_cc, "repaired cc");
+      corefine_union(repaired_mesh, repaired_cc, repaired_mesh);
+    }
+  }
 
-  corefine_union(contracted_pos, contracted_neg, contracted);
-  compute_normals_and_retriangulate(contracted, kernel);
-  if (do_draw) CGAL::draw(contracted, "Contracted");
-
-  // Expand.
-  std::vector<Arrangement> gms;
-  gaussian_maps<Arrangement>(contracted, std::back_inserter(gms), kernel);
-  std::cout << "contracted decomposed into " << gms.size() << " pieces\n";
-  Polyhedral_mesh expanded;
-  minkowski_sum_3<Polyhedral_mesh>(gms.begin(), gms.end(), cube_gm, expanded);
-  compute_normals_and_retriangulate(expanded, kernel);
-  if (do_draw) CGAL::draw(expanded, "Expanded");
-  CGAL::IO::write_polygon_mesh("expanded.off", expanded, CGAL::parameters::stream_precision(17));
+  fs::path fullpath = fullname;
+  auto stem = fullpath.stem().string();
+  CGAL::IO::write_polygon_mesh(stem.append("_expanded.off"), repaired_mesh, CGAL::parameters::stream_precision(17));
 
   return 0;
 }
