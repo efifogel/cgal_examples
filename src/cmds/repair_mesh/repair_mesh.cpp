@@ -1,6 +1,7 @@
 #include <vector>
 #include <type_traits>
 #include <filesystem>
+#include <chrono>
 
 #include <boost/program_options.hpp>
 
@@ -28,6 +29,9 @@
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <CGAL/Polygon_mesh_processing/connected_components.h>
 #include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
+#include <CGAL/Polygon_mesh_processing/repair.h>
+#include <CGAL/Polygon_mesh_processing/remesh_planar_patches.h>
+#include <CGAL/Polygon_mesh_processing/self_intersections.h>
 #include <CGAL/Polygon_mesh_processing/triangulate_faces.h>
 #include <CGAL/Surface_mesh.h>
 
@@ -51,6 +55,15 @@ namespace po = boost::program_options;
 namespace fs = std::filesystem;
 namespace PMP = CGAL::Polygon_mesh_processing;
 namespace params = CGAL::parameters;
+
+/*!
+ */
+struct Settings {
+  bool do_draw = false;
+  double offset = 1e-5;
+  double size = 0.1;
+  std::size_t verbose = 0;
+};
 
 //! \brief obtains the default value of the input path
 const Path def_input_path() {
@@ -239,16 +252,17 @@ OutputIterator gaussian_maps(Mesh& mesh, OutputIterator oi, const Kernel_& kerne
 /*!
  */
 template <typename Mesh_, typename InputIterator, typename Arrangement_>
-void minkowski_sum_3(InputIterator begin, InputIterator end, const Arrangement_& gm2, Mesh_& ms) {
-  std::cout << "minkowski_sum_3()\n";
+void minkowski_sum_3(InputIterator begin, InputIterator end, const Arrangement_& gm2, Mesh_& ms,
+                     const Settings& settings) {
   using Arrangement = Arrangement_;
   using Mesh = Mesh_;
 
   std::size_t i = 0;
   CGAL::Arr_face_overlay_traits<Arrangement, Arrangement, Arrangement, Adder> overlay_traits;
   bool first = true;
+  ms.clear();
   for (auto it = begin; it != end; ++it) {
-    std::cout << "i: " << i++ << std::endl;
+    if (settings.verbose > 1) std::cout << "Adding i: " << i++ << std::endl;
     Arrangement gm;
     CGAL::overlay(*it, gm2, gm, overlay_traits);
     using Halfedge_ds = typename Mesh::HalfedgeDS;
@@ -262,7 +276,19 @@ void minkowski_sum_3(InputIterator begin, InputIterator end, const Arrangement_&
     Mesh mesh;
     mesh.delegate(surface);
     PMP::triangulate_faces(mesh);
+#if 1
     corefine_union(ms, mesh, ms);
+
+    if (i % 2 == 0) {
+      Mesh temp;
+      PMP::remesh_planar_patches(ms, temp);
+      std::swap(ms, temp);
+    }
+#else
+    Mesh temp;
+    corefine_union(ms, mesh, temp);
+    PMP::remesh_planar_patches(temp, ms);
+#endif
   }
 }
 
@@ -326,65 +352,119 @@ void compute_normals_and_retriangulate(Mesh_& mesh, const Kernel_& kernel) {
 /*!
  */
 template <typename Mesh_, typename Arrangement_, typename InputIterator>
-void subtract(Mesh_& mesh, const Arrangement_& cube_gm, InputIterator begin, InputIterator end) {
+void subtract(Mesh_& mesh, const Arrangement_& cube_gm, InputIterator begin, InputIterator end,
+              const Settings& settings) {
   using Mesh = Mesh_;
   using Arrangement = Arrangement_;
 
   std::size_t i = 0;
   CGAL::Arr_face_overlay_traits<Arrangement, Arrangement, Arrangement, Adder> overlay_traits;
   for (auto it = begin; it != end; ++it) {
-    std::cout << "i: " << i++ << std::endl;
+    if (settings.verbose > 1) std::cout << "Subtracting i: " << i++ << std::endl;
     Arrangement gm;
     CGAL::overlay(*it, cube_gm, gm, overlay_traits);
     Mesh ms;
     extract_mesh(gm, ms);
+#if 1
     corefine_difference(mesh, ms, mesh);
-    PMP::triangulate_faces(mesh);
+
+    // if (i % 2 == 0) {
+      Mesh temp;
+      PMP::remesh_planar_patches(mesh, temp);
+      std::swap(mesh, temp);
+      // }
+#else
+    Mesh temp;
+    corefine_difference(mesh, ms, temp);
+    PMP::remesh_planar_patches(temp, mesh);
+#endif
   }
+}
+
+//!
+template <typename Mesh_>
+void repair_mesh(Mesh_& mesh) {
+  PMP::remove_degenerate_faces(mesh);
+  PMP::remove_degenerate_edges(mesh);
+  PMP::remove_isolated_vertices(mesh);
 }
 
 /*!
  */
 template <typename Mesh_, typename Arrangement_, typename Kernel_>
-void repair_cc(Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& expanded, const Kernel_& kernel,
-               double offset = 1e-5, bool do_draw = false) {
+bool repair_cc(Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& expanded, const Kernel_& kernel,
+               const Settings& settings) {
   using Mesh = Mesh_;
   using Arrangement = Arrangement_;
   using Kernel = Kernel_;
 
+  // General validity
+  if (! mesh.is_valid()) std::cerr << "The component is invalid\n";
+
+  // Closed
+  if (! CGAL::is_closed(mesh)) std::cerr << "The component is open\n";
+
+  // Self intersected
+  if (PMP::does_self_intersect(mesh)) {
+    std::cerr << "The component self intersects, removing self intersections\n";
+    PMP::experimental::remove_self_intersections(mesh);
+    if (PMP::does_self_intersect(mesh)) {
+      std::cerr << "The component still self intersects, removing self intersections\n";
+      soup_union(mesh, mesh, mesh);
+      if (PMP::does_self_intersect(mesh)) {
+        std::cerr << "The component still self intersects, ran out of options...\n";
+        return false;
+      }
+    }
+  }
+
+  // Outward oriented
+  if (! PMP::is_outward_oriented(mesh)) {
+    std::cerr << "The Component is not outward oriented, reorienting\n";
+    PMP::orient_to_bound_a_volume(mesh);
+  }
+
   // Compute the bounding box and split the mesh.
-  CGAL::Bbox_3 bbox = CGAL::Polygon_mesh_processing::bbox(mesh);
-  std::cout << bbox << std::endl;
+  CGAL::Bbox_3 bbox = PMP::bbox(mesh);
+  if (settings.verbose > 0) std::cout << bbox << std::endl;
   Mesh bbox_pos, bbox_neg;
-  split_mesh(bbox, bbox_pos, bbox_neg, offset);
+  split_mesh(bbox, bbox_pos, bbox_neg, settings.offset);
 
   // Contract.
 
   // Compute the difference between the bounding box and the mesh
   Mesh complement_pos, complement_neg;
-  soup_difference(bbox_pos, mesh, complement_pos);
+  corefine_difference(bbox_pos, mesh, complement_pos);
+  if (settings.do_draw) CGAL::draw(complement_pos, "complement_pos");
+  if (settings.verbose > 0) std::cout << "Computed 1st half difference\n";
   compute_normals_and_retriangulate(complement_pos, kernel);
-  soup_difference(bbox_neg, mesh, complement_neg);
+  if (settings.verbose > 0) std::cout << "Retriangulated 1st half difference\n";
+  corefine_difference(bbox_neg, mesh, complement_neg);
+  if (settings.do_draw) CGAL::draw(complement_neg, "complement_neg");
+  if (settings.verbose > 0) std::cout << "Computed 2nd half difference\n";
   compute_normals_and_retriangulate(complement_neg, kernel);
+  if (settings.verbose > 0) std::cout << "Retriangulated 2nd half difference\n";
 
   // Decompose the difference into convex pieces and compute their Gaussian maps
   std::vector<Arrangement> contracted_gms;
   gaussian_maps<Arrangement>(complement_pos, std::back_inserter(contracted_gms), kernel);
   gaussian_maps<Arrangement>(complement_neg, std::back_inserter(contracted_gms), kernel);
-  std::cout << "Complement decomneged into " << contracted_gms.size() << " pieces\n";
+  if (settings.verbose > 0) std::cout << "Complement decomneged into " << contracted_gms.size() << " pieces\n";
 
   // Compute the contracted mesh
   auto contracted = to_mesh<Mesh>(bbox);
-  subtract(contracted, cube_gm, contracted_gms.begin(), contracted_gms.end());
+  subtract(contracted, cube_gm, contracted_gms.begin(), contracted_gms.end(), settings);
   compute_normals_and_retriangulate(contracted, kernel);
-  if (do_draw) CGAL::draw(contracted, "Contracted");
+  if (settings.do_draw) CGAL::draw(contracted, "Contracted");
 
   // Expand.
   std::vector<Arrangement> expanded_gms;
   gaussian_maps<Arrangement>(contracted, std::back_inserter(expanded_gms), kernel);
-  std::cout << "contracted decomposed into " << expanded_gms.size() << " pieces\n";
-  minkowski_sum_3<Mesh>(expanded_gms.begin(), expanded_gms.end(), cube_gm, expanded);
+  if (settings.verbose > 0) std::cout << "contracted decomposed into " << expanded_gms.size() << " pieces\n";
+  minkowski_sum_3<Mesh>(expanded_gms.begin(), expanded_gms.end(), cube_gm, expanded, settings);
   compute_normals_and_retriangulate(expanded, kernel);
+
+  return true;
 }
 
 /*! Main entry.
@@ -397,20 +477,17 @@ int main(int argc, char* argv[]) {
   using Polyhedral_mesh = CGAL::Polyhedron_3<Traits, Extended_polyhedron_items>;
   using Surface_mesh = CGAL::Surface_mesh<Point_3>;
 
-using Geom_traits = CGAL::Arr_geodesic_arc_on_sphere_traits_2<Kernel>;
-using Point = Geom_traits::Point_2;
-using X_monotone_curve = Geom_traits::X_monotone_curve_2;
-using Dcel = CGAL::Arr_face_extended_dcel<Geom_traits, Point_3>;
-using Topol_traits = CGAL::Arr_spherical_topology_traits_2<Geom_traits,Dcel>;
-using Arrangement = CGAL::Arrangement_on_surface_2<Geom_traits,Topol_traits>;
-using Vertex_handle = Arrangement::Vertex_handle;
-using Halfedge_handle = Arrangement::Halfedge_handle;
-using Face_handle = Arrangement::Face_handle;
+  using Geom_traits = CGAL::Arr_geodesic_arc_on_sphere_traits_2<Kernel>;
+  using Point = Geom_traits::Point_2;
+  using X_monotone_curve = Geom_traits::X_monotone_curve_2;
+  using Dcel = CGAL::Arr_face_extended_dcel<Geom_traits, Point_3>;
+  using Topol_traits = CGAL::Arr_spherical_topology_traits_2<Geom_traits,Dcel>;
+  using Arrangement = CGAL::Arrangement_on_surface_2<Geom_traits,Topol_traits>;
+  using Vertex_handle = Arrangement::Vertex_handle;
+  using Halfedge_handle = Arrangement::Halfedge_handle;
+  using Face_handle = Arrangement::Face_handle;
 
-  std::size_t verbose = 0;
-  auto do_draw = false;
-  double size = 0.1;
-  double offset = 1e-5;
+  Settings settings;
   std::string input_dir = ".";
   std::string fullname;
 
@@ -419,12 +496,12 @@ using Face_handle = Arrangement::Face_handle;
     po::options_description desc("Allowed options");
     desc.add_options()
       ("help,h", "produce help message")
-      ("draw,d", po::value<bool>(&do_draw)->implicit_value(false), "draw the meshes")
+      ("draw,d", po::value<bool>(&settings.do_draw)->implicit_value(false), "draw the meshes")
       ("input-path,i", po::value<Paths>()->composing()->default_value({def_input_path()}), "input path")
       ("filename", po::value<std::string>(), "First file name")
-      ("offset,o", po::value<double>(&offset)->default_value(1e-5), "bounding box offset")
-      ("size,s", po::value<double>(&size)->default_value(0.1), "set cube size")
-      ("verbose,v", po::value<std::size_t>(&verbose)->implicit_value(1), "set verbosity level (0 = quiet")
+      ("offset,o", po::value<double>(&settings.offset)->default_value(1e-5), "bounding box offset")
+      ("size,s", po::value<double>(&settings.size)->default_value(0.1), "set cube size")
+      ("verbose,v", po::value<std::size_t>(&settings.verbose)->implicit_value(1), "set verbosity level (0 = quiet")
     ;
 
     po::positional_options_description p;
@@ -444,7 +521,7 @@ using Face_handle = Arrangement::Face_handle;
     }
 
     // Verbosity: show directory being scanned
-    if (verbose > 0) {
+    if (settings.verbose > 0) {
       std::cout << "Searching directory: " << input_dir << "\n";
     }
 
@@ -469,7 +546,7 @@ using Face_handle = Arrangement::Face_handle;
 
   // Generate an epsilon cube
   // double size = 1e-5;
-  auto cube_iso = make_iso_cube(size, kernel);
+  auto cube_iso = make_iso_cube(settings.size, kernel);
   auto cube_pm = to_mesh<Polyhedral_mesh>(cube_iso);
 
   // Compute the Gaussian map of the cube.
@@ -477,17 +554,24 @@ using Face_handle = Arrangement::Face_handle;
 
   // Construct the mesh.
   Polyhedral_mesh mesh;
-  auto rc1 = CGAL::IO::read_polygon_mesh(fullname, mesh);
-  if (do_draw) CGAL::draw(mesh, fullname.c_str());
+  auto rc1 = CGAL::IO::read_polygon_mesh(fullname, mesh, params::verbose(true).repair_polygon_soup(true));
+
+  auto start = std::chrono::high_resolution_clock::now();
+
+  repair_mesh(mesh);
+  if (settings.do_draw) CGAL::draw(mesh, fullname.c_str());
 
   using Facet_handle = Polyhedral_mesh::Facet_handle;
   std::map<Facet_handle, std::size_t> face_component_map;
   auto num_ccs = PMP::connected_components(mesh, boost::make_assoc_property_map(face_component_map));
+  if (settings.verbose > 0) std::cout << "# connected components: " << num_ccs << std::endl;
 
   Polyhedral_mesh repaired_mesh;
+  auto success = true;
   if (num_ccs == 1) {
-    repair_cc(mesh, cube_gm, repaired_mesh, kernel, offset, do_draw);
-    if (do_draw) CGAL::draw(repaired_mesh, "repaired cc");
+    auto rc = repair_cc(mesh, cube_gm, repaired_mesh, kernel, settings);
+    if (! rc) success = false;
+    else if (settings.do_draw) CGAL::draw(repaired_mesh, "repaired mesh");
   }
   else {
     std::vector<Polyhedral_mesh> ccs;
@@ -495,15 +579,23 @@ using Face_handle = Arrangement::Face_handle;
     PMP::split_connected_components(mesh, ccs);
     for (auto& cc : ccs) {
       Polyhedral_mesh repaired_cc;
-      repair_cc(cc, cube_gm, repaired_cc, kernel, offset, do_draw);
-      if (do_draw) CGAL::draw(repaired_cc, "repaired cc");
+      auto rc = repair_cc(cc, cube_gm, repaired_cc, kernel, settings);
+      if (! rc) {
+        success = false;
+        continue;
+      }
+      if (settings.do_draw) CGAL::draw(repaired_cc, "repaired cc");
       corefine_union(repaired_mesh, repaired_cc, repaired_mesh);
     }
   }
+
+  auto diff = std::chrono::high_resolution_clock::now() - start;
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(diff);
+  std::cout << "Execution took " << duration.count() << " microseconds.\n";
 
   fs::path fullpath = fullname;
   auto stem = fullpath.stem().string();
   CGAL::IO::write_polygon_mesh(stem.append("_expanded.off"), repaired_mesh, CGAL::parameters::stream_precision(17));
 
-  return 0;
+  return (success) ? 0 : -1;
 }
