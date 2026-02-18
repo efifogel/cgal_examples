@@ -141,7 +141,6 @@ int main(int argc, char* argv[]) {
     std::cerr << "Error: could not read mesh from '" << fullname << "'.\n";
     return 1;
   }
-  CGAL::IO::write_polygon_mesh("m2.off", mesh, CGAL::parameters::stream_precision(17));
 
   auto face_property_maps = mesh.properties<face_descriptor>();
   // for (const auto& pm : face_property_maps) std::cout << pm << std::endl;
