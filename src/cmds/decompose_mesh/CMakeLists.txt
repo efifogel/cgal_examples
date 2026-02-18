@@ -1,13 +1,14 @@
-set (component test_off)
+set (component decompose_mesh)
+string(TOUPPER ${component} component_upper)
 
 # Add source files
-set(TESTRX_SOURCE_FILES ${TESTRX_SOURCE_FILES} ${component}.cpp)
+set(${component_upper}_SOURCE_FILES ${${component_upper}_SOURCE_FILES} ${component}.cpp)
 
 if (BUILD_SHARED_LIBS)
   add_definitions(-DCGALEX_ALL_DYN_LINK)
 endif()
 
-add_executable(${component} ${TESTRX_SOURCE_FILES})
+add_executable(${component} ${${component_upper}_SOURCE_FILES})
 set_target_properties(${component} PROPERTIES OUTPUT_NAME ${component})
 
 target_include_directories(${component} PUBLIC

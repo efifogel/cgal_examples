@@ -1,4 +1,4 @@
-set (component repair_mesh)
+set (component split_mesh)
 string(TOUPPER ${component} component_upper)
 
 # Add source files

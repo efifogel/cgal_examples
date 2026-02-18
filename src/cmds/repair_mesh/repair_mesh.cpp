@@ -276,19 +276,10 @@ void minkowski_sum_3(InputIterator begin, InputIterator end, const Arrangement_&
     Mesh mesh;
     mesh.delegate(surface);
     PMP::triangulate_faces(mesh);
-#if 1
-    corefine_union(ms, mesh, ms);
-
-    if (i % 2 == 0) {
-      Mesh temp;
-      PMP::remesh_planar_patches(ms, temp);
-      std::swap(ms, temp);
-    }
-#else
     Mesh temp;
     corefine_union(ms, mesh, temp);
+    ms.clear();
     PMP::remesh_planar_patches(temp, ms);
-#endif
   }
 }
 
@@ -365,19 +356,10 @@ void subtract(Mesh_& mesh, const Arrangement_& cube_gm, InputIterator begin, Inp
     CGAL::overlay(*it, cube_gm, gm, overlay_traits);
     Mesh ms;
     extract_mesh(gm, ms);
-#if 1
-    corefine_difference(mesh, ms, mesh);
-
-    // if (i % 2 == 0) {
-      Mesh temp;
-      PMP::remesh_planar_patches(mesh, temp);
-      std::swap(mesh, temp);
-      // }
-#else
     Mesh temp;
     corefine_difference(mesh, ms, temp);
+    mesh.clear();
     PMP::remesh_planar_patches(temp, mesh);
-#endif
   }
 }
 
@@ -417,6 +399,7 @@ bool repair_cc(Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& expanded, const 
       }
     }
   }
+  CGAL::IO::write_polygon_mesh("xxx.off", mesh, CGAL::parameters::stream_precision(17));
 
   // Outward oriented
   if (! PMP::is_outward_oriented(mesh)) {
@@ -444,6 +427,8 @@ bool repair_cc(Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& expanded, const 
   if (settings.verbose > 0) std::cout << "Computed 2nd half difference\n";
   compute_normals_and_retriangulate(complement_neg, kernel);
   if (settings.verbose > 0) std::cout << "Retriangulated 2nd half difference\n";
+  CGAL::IO::write_polygon_mesh("xxx1.off", complement_pos, CGAL::parameters::stream_precision(17));
+  CGAL::IO::write_polygon_mesh("xxx2.off", complement_neg, CGAL::parameters::stream_precision(17));
 
   // Decompose the difference into convex pieces and compute their Gaussian maps
   std::vector<Arrangement> contracted_gms;

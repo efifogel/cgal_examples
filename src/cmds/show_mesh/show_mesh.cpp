@@ -158,7 +158,7 @@ int main(int argc, char* argv[]) {
   CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
   gso.ignore_all_vertices(true);
 
-  gso.ignore_all_edges(true);
+  // gso.ignore_all_edges(true);
   gso.colored_edge = [](const Mesh& mesh, typename boost::graph_traits<Mesh>::edge_descriptor ed) -> bool {
     auto hd = CGAL::halfedge(ed, mesh);
     auto ohd = CGAL::opposite(hd, mesh);
