@@ -399,7 +399,6 @@ bool repair_cc(Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& expanded, const 
       }
     }
   }
-  CGAL::IO::write_polygon_mesh("xxx.off", mesh, CGAL::parameters::stream_precision(17));
 
   // Outward oriented
   if (! PMP::is_outward_oriented(mesh)) {
@@ -420,21 +419,35 @@ bool repair_cc(Mesh_& mesh, const Arrangement_& cube_gm, Mesh_& expanded, const 
   corefine_difference(bbox_pos, mesh, complement_pos);
   if (settings.do_draw) CGAL::draw(complement_pos, "complement_pos");
   if (settings.verbose > 0) std::cout << "Computed 1st half difference\n";
+#if 1
   compute_normals_and_retriangulate(complement_pos, kernel);
+#else
+  Mesh temp1;
+  PMP::remesh_planar_patches(complement_pos, temp1);
+  std::swap(complement_pos, temp1);
+#endif
   if (settings.verbose > 0) std::cout << "Retriangulated 1st half difference\n";
   corefine_difference(bbox_neg, mesh, complement_neg);
   if (settings.do_draw) CGAL::draw(complement_neg, "complement_neg");
   if (settings.verbose > 0) std::cout << "Computed 2nd half difference\n";
+#if 1
   compute_normals_and_retriangulate(complement_neg, kernel);
+#else
+  Mesh temp2;
+  PMP::remesh_planar_patches(complement_neg, temp2);
+  std::swap(complement_neg, temp2);
+#endif
   if (settings.verbose > 0) std::cout << "Retriangulated 2nd half difference\n";
-  CGAL::IO::write_polygon_mesh("xxx1.off", complement_pos, CGAL::parameters::stream_precision(17));
-  CGAL::IO::write_polygon_mesh("xxx2.off", complement_neg, CGAL::parameters::stream_precision(17));
+  // CGAL::IO::write_polygon_mesh("xxx1.off", complement_pos, CGAL::parameters::stream_precision(17));
+  // CGAL::IO::write_polygon_mesh("xxx1.off", complement_neg, CGAL::parameters::stream_precision(17));
+  // CGAL::draw(complement_pos, "pos");
+  // CGAL::draw(complement_neg, "neg");
 
   // Decompose the difference into convex pieces and compute their Gaussian maps
   std::vector<Arrangement> contracted_gms;
   gaussian_maps<Arrangement>(complement_pos, std::back_inserter(contracted_gms), kernel);
   gaussian_maps<Arrangement>(complement_neg, std::back_inserter(contracted_gms), kernel);
-  if (settings.verbose > 0) std::cout << "Complement decomneged into " << contracted_gms.size() << " pieces\n";
+  if (settings.verbose > 0) std::cout << "Complement decomposed into " << contracted_gms.size() << " pieces\n";
 
   // Compute the contracted mesh
   auto contracted = to_mesh<Mesh>(bbox);
