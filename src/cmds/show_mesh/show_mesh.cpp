@@ -75,6 +75,8 @@ int main(int argc, char* argv[]) {
 
   bool do_draw = false;
   bool do_repair = true;
+  bool do_remesh = true;
+  bool do_write = false;
   std::size_t verbose = 0;
   std::string input_dir = ".";
   std::string fullname;
@@ -83,12 +85,14 @@ int main(int argc, char* argv[]) {
     // Define options
     po::options_description desc("Allowed options");
     desc.add_options()
-      ("help,h", "produce help message")
-      ("verbose,v", po::value<std::size_t>(&verbose)->implicit_value(1), "set verbosity level (0 = quiet")
-      ("draw,d", po::value<bool>(&do_draw)->implicit_value(true), "draw the meshes")
-      ("repair,r", po::value<bool>(&do_repair)->implicit_value(true), "repair the meshes")
-      ("input-path,i", po::value<Paths>()->composing()->default_value({def_input_path()}), "input path")
       ("filename", po::value<std::string>(), "First file name")
+      ("help,h", "produce help message")
+      ("input-path,i", po::value<Paths>()->composing()->default_value({def_input_path()}), "input path")
+      ("draw,d", po::value<bool>(&do_draw)->implicit_value(true), "draw the mesh")
+      ("remesh", po::value<bool>(&do_remesh)->implicit_value(true), "remesh the mesh")
+      ("repair", po::value<bool>(&do_repair)->implicit_value(true), "repair the mesh")
+      ("verbose,v", po::value<std::size_t>(&verbose)->implicit_value(1), "set verbosity level (0 = quiet")
+      ("write,w", po::value<bool>(&do_write)->implicit_value(false), "write the mesh")
     ;
 
     po::positional_options_description p;
@@ -156,9 +160,8 @@ int main(int argc, char* argv[]) {
 #if defined(CGALEX_HAS_VISUAL)
   CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
   gso.ignore_all_vertices(true);
-
   // gso.ignore_all_edges(true);
-  gso.colored_edge = [](const Mesh& mesh, typename boost::graph_traits<Mesh>::edge_descriptor ed) -> bool {
+  gso.colored_edge = [](const Mesh& mesh, edge_descriptor ed) -> bool {
     auto hd = CGAL::halfedge(ed, mesh);
     auto ohd = CGAL::opposite(hd, mesh);
     if ((CGAL::face(hd, mesh) == boost::graph_traits<Mesh>::null_face()) ||
@@ -168,12 +171,12 @@ int main(int argc, char* argv[]) {
     }
     return false;
   };
-  gso.edge_color =  [] (const Mesh&, typename boost::graph_traits<Mesh>::edge_descriptor ed) -> CGAL::IO::Color {
+  gso.edge_color =  [] (const Mesh&, edge_descriptor ed) -> CGAL::IO::Color {
     return CGAL::IO::Color(0, 128, 0);
   };
 
-  gso.colored_face = [](const Mesh&, typename boost::graph_traits<Mesh>::face_descriptor) -> bool { return true; };
-  gso.face_color =  [] (const Mesh&, typename boost::graph_traits<Mesh>::face_descriptor fh) -> CGAL::IO::Color {
+  gso.colored_face = [](const Mesh&, face_descriptor) -> bool { return true; };
+  gso.face_color =  [] (const Mesh&, face_descriptor fh) -> CGAL::IO::Color {
     if (fh == boost::graph_traits<Mesh>::null_face()) return CGAL::IO::Color(0, 0, 0);
     return get_random_color(CGAL::get_default_random());
     // return CGAL::IO::Color(128, 0, 0);
@@ -211,20 +214,39 @@ int main(int argc, char* argv[]) {
 
   Kernel kernel;
 
-  // // Repair
-  PMP::stitch_borders(mesh, params::apply_per_connected_component(true));
-  auto num_isolated_vertices = PMP::remove_isolated_vertices(mesh);
-  if (num_isolated_vertices > 0) std::cout << "Removed " << num_isolated_vertices << " isolated vertices\n";
+  // Repair
+  if (do_repair) {
+    PMP::stitch_borders(mesh, params::apply_per_connected_component(true));
+    auto num_isolated_vertices = PMP::remove_isolated_vertices(mesh);
+    if (num_isolated_vertices > 0) std::cout << "Removed " << num_isolated_vertices << " isolated vertices\n";
 
-  // Must be triangular
-  auto no_degenerate_faces = PMP::remove_degenerate_faces(mesh);
-  std::cout << "no_degenerate_faces " << no_degenerate_faces << "\n";
-  auto no_degenerate_edges = PMP::remove_degenerate_edges(mesh);
-  std::cout << "no_degenerate_edges " << no_degenerate_edges << "\n";
+    // Must be triangular
+    auto num_faces_before = mesh.number_of_faces();
+    auto no_degenerate_faces = PMP::remove_degenerate_faces(mesh);
+    auto num_faces_after = mesh.number_of_faces();
+    if (! no_degenerate_faces) std::cerr << "degenerate_faces remain\n";
+    if (verbose > 0) {
+      if (num_faces_before > num_faces_after)
+        std::cout << "Removed " << (num_faces_before - num_faces_after) << " degenerate faces\n";
+      else if (num_faces_before < num_faces_after)
+        std::cout << "Introduced " << (num_faces_after - num_faces_before) << " new faces\n";
+    }
+    auto num_edges_before = mesh.number_of_edges();
+    auto no_degenerate_edges = PMP::remove_degenerate_edges(mesh);
+    auto num_edges_after = mesh.number_of_edges();
+   if (! no_degenerate_edges) std::cerr << "degenerate_edges remain\n";
+    if (verbose > 0) {
+      if (num_edges_before > num_edges_after)
+        std::cout << "Removed " << (num_edges_before - num_edges_after) << " degenerate edges\n";
+      else if (num_edges_before < num_edges_after)
+        std::cout << "Introduced " << (num_edges_after - num_edges_before) << " new edges\n";
+    }
+    mesh.collect_garbage();
+  }
 
   // General validity
   auto is_valid = mesh.is_valid();
-  if (! is_valid) std::cerr << "The mesh is not valid\n";
+  if (! is_valid) std::cerr << "The mesh is invalid\n";
 
   // Closed
   auto is_closed = CGAL::is_closed(mesh);
@@ -259,18 +281,20 @@ int main(int argc, char* argv[]) {
   // }
 
   if (is_closed) {
-    using Vector_3 = typename Kernel::Vector_3;
-    auto np = params::geom_traits(kernel);
-    auto normals = mesh.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
+    if (do_remesh) {
+      using Vector_3 = typename Kernel::Vector_3;
+      auto np = params::geom_traits(kernel);
+      auto normals = mesh.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
 
 #if 1
-    PMP::compute_face_normals(mesh, normals, np);
-    retriangulate_faces(mesh, normals, np);
+      PMP::compute_face_normals(mesh, normals, np);
+      retriangulate_faces(mesh, normals, np);
 #else
-    Mesh temp;
-    PMP::remesh_planar_patches(mesh, temp);
-    std::swap(mesh, temp);
+      Mesh temp;
+      PMP::remesh_planar_patches(mesh, temp);
+      std::swap(mesh, temp);
 #endif
+    }
 
     // General validity
     is_valid = mesh.is_valid(true);
@@ -297,11 +321,11 @@ int main(int argc, char* argv[]) {
     // Does self intersect
     auto self_intersect = PMP::does_self_intersect(mesh);
     if (self_intersect) std::cerr << "The mesh self intersects\n";
+  }
 
 #if defined(CGALEX_HAS_VISUAL)
-    CGAL::draw(mesh, gso, "Intermediate");
+  CGAL::draw(mesh, gso, "Intermediate");
 #endif
-  }
 
   // Triangular mesh
   auto is_tri = CGAL::is_triangle_mesh(mesh);
@@ -353,5 +377,8 @@ int main(int argc, char* argv[]) {
   //     std::cout << "The mesh [" << i++ << "]" << ((does_bound_volume) ? "does" : "does not") << " bound a volume\n";
   //   }
   // }
+
+  if (do_write) CGAL::IO::write_polygon_mesh("mesh.off", mesh, CGAL::parameters::stream_precision(17));
+
   return 0;
 }
