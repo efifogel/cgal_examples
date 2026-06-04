@@ -1,6 +1,6 @@
 base_dir=$HOME/trees/cgal_examples/data/nova/CGAL_Experiments
 rel_dir1=out_diff_corefine
-rel_dir2=out_union
+rel_dir2=out_diff_soup
 # test 0
 echo "====== 000_CGAL_Example_1 ======"
 ./cmpmeshes.py $base_dir/000_CGAL_Example_1/$rel_dir1/00000_AIR $base_dir/000_CGAL_Example_1/$rel_dir2/00000_AIR
@@ -11,22 +11,29 @@ echo "====== 001_CGAL_Example_2 ======"
 echo "====== 002_CGAL_Example_3 ======"
 ./cmpmeshes.py $base_dir/002_CGAL_Example_3/$rel_dir1/00000_AIR $base_dir/002_CGAL_Example_3/$rel_dir2/00000_AIR
 # test 3
-# ./cmpmeshes.py $base_dir/003_Circles_with_slits_original/$rel_dir1/00000_TOP $base_dir/003_Circles_with_slits_original/$rel_dir2/00000_TOP
-# ./cmpmeshes.py $base_dir/003_Circles_with_slits_original/$rel_dir1/00001_CELL $base_dir/003_Circles_with_slits_original/$rel_dir2/00001_CELL
-# ./cmpmeshes.py $base_dir/003_Circles_with_slits_original/$rel_dir1/00002_BOT $base_dir/003_Circles_with_slits_original/$rel_dir2/00002_BOT
+echo "====== 003_Circles_with_slits_original ======"
+./cmpmeshes.py $base_dir/003_Circles_with_slits_original/$rel_dir1/00000_TOP $base_dir/003_Circles_with_slits_original/$rel_dir2/00000_TOP
+./cmpmeshes.py $base_dir/003_Circles_with_slits_original/$rel_dir1/00001_CELL $base_dir/003_Circles_with_slits_original/$rel_dir2/00001_CELL
+./cmpmeshes.py $base_dir/003_Circles_with_slits_original/$rel_dir1/00002_BOT $base_dir/003_Circles_with_slits_original/$rel_dir2/00002_BOT
 # test 4
-# ./cmpmeshes.py $base_dir/004_N3_M1_FL/$rel_dir1/00000_M1 $base_dir/004_N3_M1_FL/$rel_dir2/00000_M1
-# ./cmpmeshes.py $base_dir/004_N3_M1_FL/$rel_dir1/00001_M0 $base_dir/004_N3_M1_FL/$rel_dir2/00001_M0
-# ./cmpmeshes.py $base_dir/004_N3_M1_FL/$rel_dir1/00002_MCESL $base_dir/004_N3_M1_FL/$rel_dir2/00002_MCESL
-# ./cmpmeshes.py $base_dir/004_N3_M1_FL/$rel_dir1/00003_POLY $base_dir/004_N3_M1_FL/$rel_dir2/00003_POLY
-# ./cmpmeshes.py $base_dir/004_N3_M1_FL/$rel_dir1/00004_SI $base_dir/004_N3_M1_FL/$rel_dir2/00004_SI
+echo "====== 004_N3_M1_FL ======"
+./cmpmeshes.py $base_dir/004_N3_M1_FL/$rel_dir1/00000_M1 $base_dir/004_N3_M1_FL/$rel_dir2/00000_M1
+./cmpmeshes.py $base_dir/004_N3_M1_FL/$rel_dir1/00001_M0 $base_dir/004_N3_M1_FL/$rel_dir2/00001_M0
+./cmpmeshes.py $base_dir/004_N3_M1_FL/$rel_dir1/00002_MCESL $base_dir/004_N3_M1_FL/$rel_dir2/00002_MCESL
+./cmpmeshes.py $base_dir/004_N3_M1_FL/$rel_dir1/00003_POLY $base_dir/004_N3_M1_FL/$rel_dir2/00003_POLY
+./cmpmeshes.py $base_dir/004_N3_M1_FL/$rel_dir1/00004_SI $base_dir/004_N3_M1_FL/$rel_dir2/00004_SI
 # test 5
-# ./cmpmeshes.py $base_dir/005_7NM_CTTU_SRAM
+echo "====== 005_7NM_CTTU_SRAM ======"
+./cmpmeshes.py $base_dir/005_7NM_CTTU_SRAM/$rel_dir1/00000_SRAM $base_dir/005_7NM_CTTU_SRAM/$rel_dir2/00000_SRAM
 # test 6
-# ./cmpmeshes.py $base_dir/006_Micron_140_29ACI
+echo "====== 006_Micron_140_29ACI ======"
+./cmpmeshes.py $base_dir/006_Micron_140_29ACI/$rel_dir1/00000_BACT_BG $base_dir/006_Micron_140_29ACI/$rel_dir2/00000_BACT_BG
 # test 7
-# ./cmpmeshes.py $base_dir/007_N2_SHF_FEOCD
+echo "====== 007_N2_SHF_FEOCD ======"
+./cmpmeshes.py $base_dir/007_N2_SHF_FEOCD/$rel_dir1/00000_AIR $base_dir/007_N2_SHF_FEOCD/$rel_dir2/00000_AIR
 # test 8
-# ./cmpmeshes.py $base_dir/008_SAS_Cavity_Etch/$rel_dir1/00000_AIR $base_dir/008_SAS_Cavity_Etch/$rel_dir2/00000_AIR
+echo "====== 008_SAS_Cavity_Etch ======"
+./cmpmeshes.py $base_dir/008_SAS_Cavity_Etch/$rel_dir1/00000_AIR $base_dir/008_SAS_Cavity_Etch/$rel_dir2/00000_AIR
 # test 9
+# echo "====== 009_Micron_140_29ACI_2nd_XSEM_v07 ======"
 # ./cmpmeshes.py $base_dir/009_Micron_140_29ACI_2nd_XSEM_v07

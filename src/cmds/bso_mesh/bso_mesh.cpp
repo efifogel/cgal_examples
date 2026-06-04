@@ -297,7 +297,7 @@ int main(int argc, char* argv[]) {
 
   auto diff = std::chrono::high_resolution_clock::now() - start;
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(diff);
-  std::cout << "Operation " << op << " took " << duration.count() << " microseconds).\n";
+  std::cout << "Operation " << op << " took " << duration.count() << " microseconds.\n";
 
   auto is_closed = CGAL::is_closed(result);
   if (! is_closed) std::cerr << "The mesh is not closed\n";

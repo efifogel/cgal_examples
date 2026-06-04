@@ -1,11 +1,11 @@
 #ifndef CGALEX_IO_PATHS_HPP
 #define CGALEX_IO_PATHS_HPP
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
 #include "cgalex/Paths.h"
 
-namespace fi = boost::filesystem;
+namespace fi = std::filesystem;
 
 namespace std {
 

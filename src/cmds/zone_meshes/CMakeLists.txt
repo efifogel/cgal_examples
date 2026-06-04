@@ -1,4 +1,4 @@
-set (component cmp_meshes)
+set (component zone_meshes)
 string(TOUPPER ${component} component_upper)
 
 # Add source files

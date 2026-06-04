@@ -68,7 +68,7 @@ private:
       auto vd = CGAL::target(hd, m_mesh);
       const Point& p = get(m_vpm, vd);
       auto next_vh = tri.insert(p);
-      next_vh->info().insert(hd);
+      next_vh->info() = hd;
 
       // Insert the constraints
       // std::cout << prev_vh->point() << ", " << next_vh->point() << std::endl;
@@ -301,7 +301,7 @@ public:
     using Point = typename boost::property_traits<VPM>::value_type;
     using Kernel = typename CGAL::Kernel_traits<Point>::Kernel;
     using Traits = CGAL::Projection_traits_3<Kernel>;
-    using Vi = std::unordered_set<halfedge_descriptor>;
+    using Vi = halfedge_descriptor;
     using Vb = CGAL::Triangulation_vertex_base_with_info_2<Vi, Traits>;
     using Fi = Face_info;
     using Fbi = CGAL::Triangulation_face_base_with_info_2<Fi, Traits>;
@@ -309,7 +309,10 @@ public:
     using Tds = CGAL::Triangulation_data_structure_2<Vb, Fb>;
     // using Itag = CGAL::No_intersection_tag;
     using Itag = CGAL::Exact_predicates_tag;
+
     using CDT = CGAL::Constrained_Delaunay_triangulation_2<Traits, Tds, Itag>;
+    // using CDT = CGAL::Constrained_triangulation_2<Traits, Tds, Itag>;
+
     Traits cdt_traits(normal);
     CDT cdt(cdt_traits);
     construct_triangulation(fd, cdt);
@@ -346,42 +349,8 @@ public:
       // none of fh and fh_opposite are external and edge is not constrained
       if (! is_external(fh) && ! is_external(opposite_fh) && ! cdt.is_constrained(*eit)) {
         // strictly internal edge
-        const auto& hd_as = vh_a->info();
-        const auto& hd_bs = vh_b->info();
-        // std::cout << "Internal: " << hd_as.size() << ", " << hd_bs.size() << std::endl;
-
-        // const auto& pa = vh_a->point();
-        // const auto& pb = vh_b->point();
-        // std::cout << pa << " " << pb << std::endl;
-
-        const auto& hdas = vh_a->info();
-        auto ita = hdas.begin();
-        auto hd_a = *ita;
-        // auto next_hd_a = CGAL::next(hd_a, m_mesh);
-        // auto p_vd = CGAL::source(hd_a, m_mesh);
-        // const Point& p = get(m_vpm, p_vd);
-        // auto q_vd = CGAL::target(next_hd_a, m_mesh);
-        // const Point& q = get(m_vpm, q_vd);
-        // std::cout << "p: " << p << std::endl;
-        // std::cout << "q: " << q << std::endl;
-        for (++ita; ita != hdas.end(); ++ita) {
-          if (true) {
-            std::cout << "XXXXXXXX 1\n";
-            break;
-          }
-        }
-
-        const auto& hdbs = vh_b->info();
-        auto itb = hdbs.begin();
-        auto hd_b = *itb;
-        // auto next_hd_b = CGAL::next(hd_b, m_mesh);
-        for (++itb; itb != hdbs.end(); ++itb) {
-          if (true) {
-            std::cout << "XXXXXXXX 2\n";
-            break;
-          }
-        }
-
+        auto hd_a = vh_a->info();
+        auto hd_b = vh_b->info();
         auto hd_new = CGAL::halfedge(add_edge(m_mesh), m_mesh);
         auto hd_opp_new = CGAL::opposite(hd_new, m_mesh);
         fh->info().e[index] = hd_new;
@@ -392,40 +361,8 @@ public:
 
       if (cdt.is_constrained(*eit)) {
         // edge is constrained
-        const auto& hd_as = vh_a->info();
-        const auto& hd_bs = vh_b->info();
-        // std::cout << "Constrained: " << hd_as.size() << ", " << hd_bs.size() << std::endl;
-        // std::cout << "Edge: " << vh_a->point() << "," << vh_b->point() << std::endl;
-        if (! is_external(fh)) {
-          const auto& hds = vh_a->info();
-          auto it = hds.begin();
-          auto hd_a = *it;
-          for (++it; it != hds.end(); ++it) {
-            auto src_vd = CGAL::source(*it, m_mesh);
-            const Point& src = get(m_vpm, src_vd);
-            if (src == vh_b->point()) {
-              hd_a = *it;
-              break;
-            }
-          }
-          fh->info().e[index] = hd_a;
-        }
-
-        //
-        if (! is_external(opposite_fh)) {
-          const auto& hds = vh_b->info();
-          auto it = hds.begin();
-          auto hd_b = *it;
-          for (++it; it != hds.end(); ++it) {
-            auto src_vd = CGAL::source(*it, m_mesh);
-            const Point& src = get(m_vpm, src_vd);
-            if (src == vh_a->point()) {
-              hd_b = *it;
-              break;
-            }
-          }
-          opposite_fh->info().e[opposite_index] = hd_b;
-        }
+        if (! is_external(fh)) fh->info().e[index] = vh_a->info();
+        if (! is_external(opposite_fh)) opposite_fh->info().e[opposite_index] = vh_b->info();
       }
     }
 

@@ -22,6 +22,8 @@ namespace PMP = CGAL::Polygon_mesh_processing;
 
 int main(int argc, char* argv[]) {
   const char* filename = (argc > 1) ? argv[1] : "cd_bug.off";
+  double alpha = (argc > 2) ? std::stod(argv[2]) : 0.5;
+
   Mesh mesh;
   if (! CGAL::IO::read_polygon_mesh(filename, mesh)) {
     std::cerr << "Error: Cannot read input.off" << std::endl;
@@ -53,17 +55,17 @@ int main(int argc, char* argv[]) {
   double mid;
 
   if (axis == 'x' || axis == 'X') {
-    mid = (bbox.xmin() + bbox.xmax()) / 2.0;
+    mid = bbox.xmin() * alpha + bbox.xmax() * (1.0 - alpha);
     pivot = Point(mid, 0, 0);
     normal = Vector(1, 0, 0);
   }
   else if (axis == 'y' || axis == 'Y') {
-    mid = (bbox.ymin() + bbox.ymax()) / 2.0;
+    mid = bbox.ymin() * alpha + bbox.ymax() * (1.0 - alpha);
     pivot = Point(0, mid, 0);
     normal = Vector(0, 1, 0);
   }
   else {
-    mid = (bbox.zmin() + bbox.zmax()) / 2.0;
+    mid = bbox.zmin()  * alpha + bbox.zmax() * (1.0 - alpha);
     pivot = Point(0, 0, mid);
     normal = Vector(0, 0, 1);
     axis = 'z'; // Default to z if input is weird

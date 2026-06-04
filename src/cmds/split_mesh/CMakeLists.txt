@@ -16,12 +16,11 @@ target_include_directories(${component} PUBLIC
     $<INSTALL_INTERFACE:include>)
 
 # Find required Boost components
-find_package(Boost CONFIG ${BOOST_MIN_VERSION} REQUIRED COMPONENTS system filesystem program_options)
+find_package(Boost CONFIG ${BOOST_MIN_VERSION} REQUIRED COMPONENTS system program_options)
 
 target_link_libraries(${component} PRIVATE
   CGAL::CGAL
   Boost::program_options
-  Boost::filesystem
   cgalex)
 
 if (${project}_WITH_VISUAL)

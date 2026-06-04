@@ -2,10 +2,9 @@
 #define CGALEX_FIND_FILE_FULLNAME_HPP
 
 #include <string>
+#include <filesystem>
 
-#include <boost/filesystem.hpp>
-
-namespace fi = boost::filesystem;
+namespace fi = std::filesystem;
 
 // CGALEX_BEGIN_NAMESPACE
 

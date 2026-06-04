@@ -21,8 +21,9 @@
 #endif
 #endif
 
-#include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
+#include <CGAL/boost/graph/border.h>
 #include <CGAL/IO/Color.h>
+#include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <CGAL/Polygon_mesh_processing/connected_components.h>
 #include <CGAL/Polygon_mesh_processing/orientation.h>
@@ -40,6 +41,8 @@
 #include "cgalex/io_paths.h"
 #include "cgalex/Paths.h"
 #include "cgalex/retriangulate_faces.h"
+#include "cgalex/merge_coplanar_faces.h"
+#include "cgalex/triangulate_faces.h"
 
 namespace po = boost::program_options;
 namespace fs = std::filesystem;
@@ -253,7 +256,7 @@ int main(int argc, char* argv[]) {
   if (! is_closed) {
     std::cerr << "The mesh is not closed\n";
     std::vector<halfedge_descriptor> border_cycles;
-    PMP::extract_boundary_cycles(mesh, std::back_inserter(border_cycles));
+    CGAL::extract_boundary_cycles(mesh, std::back_inserter(border_cycles));
     std::cout << "# boundary cycles: " << border_cycles.size() << std::endl;
     std::cout << "Cycle: " << std::endl;
     for (const auto& cycle : border_cycles) std::cout << cycle << std::endl;
@@ -286,7 +289,7 @@ int main(int argc, char* argv[]) {
       auto np = params::geom_traits(kernel);
       auto normals = mesh.add_property_map<face_descriptor, Vector_3>("f:normals", CGAL::NULL_VECTOR).first;
 
-#if 1
+#if 0
       PMP::compute_face_normals(mesh, normals, np);
       retriangulate_faces(mesh, normals, np);
 #else
@@ -305,7 +308,7 @@ int main(int argc, char* argv[]) {
     if (! is_closed) {
       std::cerr << "The mesh is not closed 2\n";
       std::vector<halfedge_descriptor> border_cycles;
-      PMP::extract_boundary_cycles(mesh, std::back_inserter(border_cycles));
+      CGAL::extract_boundary_cycles(mesh, std::back_inserter(border_cycles));
       std::cout << "# boundary cycles: " << border_cycles.size() << std::endl;
       std::cout << "Cycle: " << std::endl;
       auto vpm = get_property_map(CGAL::vertex_point, mesh);
