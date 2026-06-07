@@ -7,7 +7,7 @@
 
 #include <boost/program_options.hpp>
 
-#include <CGAL/Simple_cartesian.h>
+#include <CGAL/Exact_predicates_exact_constructions_kernel.h>
 #include <CGAL/AABB_tree.h>
 #include <CGAL/AABB_traits_3.h>
 #include <CGAL/AABB_face_graph_triangle_primitive.h>
@@ -17,6 +17,11 @@
 #include <CGAL/draw_polyhedron.h>
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
+#include <CGAL/Arrangement_on_curve_1.h>
+#include <CGAL/Arrangement_on_curve_1_functions.h>
+#include <CGAL/overlay.h>
+#include <CGAL/Unbounded_topology_traits.h>
+#include <CGAL/Line_3_traits_1.h>
 
 #include <CGAL/boost/graph/Euler_operations.h>
 #include <CGAL/boost/graph/generators.h>
@@ -28,10 +33,11 @@ namespace fs = std::filesystem;
 
 namespace PMP = CGAL::Polygon_mesh_processing;
 namespace params = CGAL::parameters;
+namespace Aoc1 = CGAL::Arrangement_on_curve_1;
 
 #define USE_SURFACE_MESH
 
-using Kernel = CGAL::Simple_cartesian<double>;
+using Kernel = CGAL::Exact_predicates_exact_constructions_kernel;
 using Point = Kernel::Point_3;
 using Plane = Kernel::Plane_3;
 using Vector = Kernel::Vector_3;
@@ -55,6 +61,97 @@ using halfedge_descriptor = boost::graph_traits<Mesh>::halfedge_descriptor;
 using edge_descriptor = boost::graph_traits<Mesh>::edge_descriptor;
 using face_descriptor = boost::graph_traits<Mesh>::face_descriptor;
 
+using Geometry_traits_1 = Aoc1::Line_3_traits_1<Kernel>;
+using Point_1 = Geometry_traits_1::Point_1;
+using Topology_traits = Aoc1::Unbounded_topology_traits<Point_1, std::vector<std::size_t>, std::vector<std::size_t>>;
+using Arrangement1 = Aoc1::Arrangement_on_curve_1<Geometry_traits_1, Topology_traits>;
+
+template <typename ArrangementA, typename ArrangementB, typename ArrangementR>
+class Combine_overlay_observer {
+public:
+  using Vertex_descriptor_a = typename ArrangementA::Vertex_descriptor;
+  using Vertex_descriptor_b = typename ArrangementB::Vertex_descriptor;
+  using Vertex_descriptor_r = typename ArrangementR::Vertex_descriptor;
+
+  using Edge_descriptor_a   = typename ArrangementA::Edge_descriptor;
+  using Edge_descriptor_b   = typename ArrangementB::Edge_descriptor;
+  using Edge_descriptor_r   = typename ArrangementR::Edge_descriptor;
+
+  using Vertex_data_map_a = typename ArrangementA::Topology_traits::Vertex_data_map;
+  using Vertex_data_map_b = typename ArrangementB::Topology_traits::Vertex_data_map;
+  using Vertex_data_map_r = typename ArrangementR::Topology_traits::Vertex_data_map;
+
+  using Edge_data_map_a = typename ArrangementA::Topology_traits::Edge_data_map;
+  using Edge_data_map_b = typename ArrangementB::Topology_traits::Edge_data_map;
+  using Edge_data_map_r = typename ArrangementR::Topology_traits::Edge_data_map;
+
+private:
+  Vertex_data_map_r m_v_map_r;
+  Edge_data_map_r m_e_map_r;
+
+  Vertex_data_map_a m_v_map_a;
+  Edge_data_map_a m_e_map_a;
+
+  Vertex_data_map_b m_v_map_b;
+  Edge_data_map_b m_e_map_b;
+
+  // Helper utility to merge two vectors of indices
+  std::vector<std::size_t> combine_vectors(const std::vector<std::size_t>& vec_a,
+                                           const std::vector<std::size_t>& vec_b) const {
+    std::vector<std::size_t> combined;
+    combined.reserve(vec_a.size() + vec_b.size());
+    combined.insert(combined.end(), vec_a.begin(), vec_a.end());
+    combined.insert(combined.end(), vec_b.begin(), vec_b.end());
+    return combined;
+  }
+
+public:
+  Combine_overlay_observer(const ArrangementA& arr_a, const ArrangementB& arr_b, ArrangementR& arr_r) :
+    m_v_map_r(arr_r.vertex_data_map()),
+    m_e_map_r(arr_r.edge_data_map()),
+    m_v_map_a(arr_a.vertex_data_map()),
+    m_e_map_a(arr_a.edge_data_map()),
+    m_v_map_b(arr_b.vertex_data_map()),
+    m_e_map_b(arr_b.edge_data_map())
+  {}
+
+  // ============================================================================
+  // 1. Two vertices coincide
+  // ============================================================================
+  void create_vertex(Vertex_descriptor_a v_a, Vertex_descriptor_b v_b, Vertex_descriptor_r v_res) {
+    const auto& vec_a = get(m_v_map_a, v_a);
+    const auto& vec_b = get(m_v_map_b, v_b);
+    put(m_v_map_r, v_res, combine_vectors(vec_a, vec_b));
+  }
+
+  // ============================================================================
+  // 2. Vertex A splits Edge B
+  // ============================================================================
+  void create_vertex(Vertex_descriptor_a v_a, Edge_descriptor_b e_b, Vertex_descriptor_r v_res) {
+    const auto& vec_a = get(m_v_map_a, v_a);
+    const auto& vec_b = get(m_e_map_b, e_b);
+    put(m_v_map_r, v_res, combine_vectors(vec_a, vec_b));
+  }
+
+  // ============================================================================
+  // 3. Edge A is split by Vertex B
+  // ============================================================================
+  void create_vertex(Edge_descriptor_a e_a, Vertex_descriptor_b v_b, Vertex_descriptor_r v_res) {
+    const auto& vec_a = get(m_e_map_a, e_a);
+    const auto& vec_b = get(m_v_map_b, v_b);
+    put(m_v_map_r, v_res, combine_vectors(vec_a, vec_b));
+  }
+
+  // ============================================================================
+  // 4. Two edges overlap over a shared interval
+  // ============================================================================
+  void create_edge(Edge_descriptor_a e_a, Edge_descriptor_b e_b, Edge_descriptor_r e_res) {
+    const auto& vec_a = get(m_e_map_a, e_a);
+    const auto& vec_b = get(m_e_map_b, e_b);
+    put(m_e_map_r, e_res, combine_vectors(vec_a, vec_b));
+  }
+};
+
 template <typename InputIterator>
 void sort_intersections(InputIterator begin, InputIterator end, const Line& line) {
   // Line direction and reference point
@@ -63,21 +160,19 @@ void sort_intersections(InputIterator begin, InputIterator end, const Line& line
 
   // Sort by signed parameter along the line
   std::sort(begin, end,
-            [&](Segment_intersection a, Segment_intersection b) {
-              const Point* pa = std::get_if<Point>(&(a->first));
-              if (! pa) {
-                Segment* seg = std::get_if<Segment>(&(a->first));
-                CGAL_assertion(seg);
-                pa = &(seg->source());
-              }
-              const Point* pb = std::get_if<Point>(&(b->first));
-              if (! pb) {
-                Segment* seg = std::get_if<Segment>(&(b->first));
-                CGAL_assertion(seg);
-                pb = &(seg->source());
-              }
-              auto ta = ((*pa - ref) * dir);
-              auto tb = ((*pb - ref) * dir);
+            [&](const Segment_intersection& a, const Segment_intersection& b) {
+              const Point* pa_ptr = std::get_if<Point>(&(a->first));
+
+              // This reference extends the lifetime of the temporary if source() is called
+              const Point& pa_ref = pa_ptr ? *pa_ptr : std::get_if<Segment>(&(a->first))->source();
+
+              // Extract or construct Point B
+              const Point* pb_ptr = std::get_if<Point>(&(b->first));
+              const Point& pb_ref = pb_ptr ? *pb_ptr : std::get_if<Segment>(&(b->first))->source();
+
+              // Both references are 100% valid here
+              auto ta = ((pa_ref - ref) * dir);
+              auto tb = ((pb_ref - ref) * dir);
               return ta < tb;
             });
 }
@@ -301,7 +396,11 @@ int main(int argc, char* argv[]) {
     PMP::compute_face_normals(mesh, normals, np);
   }
 
+  Geometry_traits_1 traits(line_query);
+  Arrangement1 arr(traits);
+
   // Compute intersection
+  std::size_t i = 0;
   for (const auto& mesh : meshes) {
     CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
     gso.ignore_all_vertices(true);
@@ -324,7 +423,7 @@ int main(int argc, char* argv[]) {
     std::vector<Segment_intersection> face_intersections;
     tree.all_intersections(line_query, std::back_inserter(face_intersections));
     sort_intersections(face_intersections.begin(), face_intersections.end(), line_query);
-    print_intersections(face_intersections.begin(), face_intersections.end());
+    // print_intersections(face_intersections.begin(), face_intersections.end());
 
     auto normals_opt = mesh.property_map<face_descriptor, Vector>("f:normals");
     CGAL_assertion(normals_opt.has_value());
@@ -333,17 +432,54 @@ int main(int argc, char* argv[]) {
     process_intersections(face_intersections.begin(), face_intersections.end(), line_query,
                           normals, std::back_inserter(intersections));
 
-    std::cout << "# intersections: " << intersections.size() << std::endl;
+    Arrangement1 arr_mesh(traits);
+
+    // Retrieve the read/write property maps from the arrangement facade
+    auto v_data_map = arr_mesh.vertex_data_map();
+    auto e_data_map = arr_mesh.edge_data_map();
+
     for (const auto& x : intersections) {
       const Point* p = std::get_if<Point>(&x);
       if (p) {
-        std::cout << "Tangent point " << *p << std::endl;
+        // std::cout << "Tangent point " << *p << std::endl;
+        auto v = Aoc1::insert(arr_mesh, *p);
+        get(v_data_map, v).push_back(i);
         continue;
       }
       const Segment* seg = std::get_if<Segment>(&x);
       CGAL_assertion(seg);
-      std::cout << "Intersection segment " << *seg << std::endl;
+      // std::cout << "Intersection segment " << *seg << std::endl;
+
+      // Fetch the segment endpoints
+      Point_1 p_src = seg->source();
+      Point_1 p_tgt = seg->target();
+
+      // Ensure we insert them in sorted order along the 1D line track
+      auto comp = arr_mesh.geometry_traits_1().compare_x_1_object();
+      if (comp(p_src, p_tgt) == CGAL::LARGER) std::swap(p_src, p_tgt);
+
+      // Insert the two endpoints into the 1D arrangement
+      // Since no vertices exist in this range, these operations split the sequence cleanly
+      auto v_first  = CGAL::Arrangement_on_curve_1::insert(arr_mesh, p_src);
+      auto v_second = CGAL::Arrangement_on_curve_1::insert(arr_mesh, p_tgt);
+
+      // Append index 'i' to the vertex data vectors
+      get(v_data_map, v_first).push_back(i);
+      get(v_data_map, v_second).push_back(i);
+
+      // Locate the unique bounded edge connecting v_first and v_second
+      // In our 1D topology, the edge to the right of v_first spans precisely to v_second
+      auto topo  = arr_mesh.topology_traits();
+      auto e_bet = topo.right_edge(v_first);
+
+      // Append index 'i' to the connecting edge's data vector
+      get(e_data_map, e_bet).push_back(i);
     }
+    Arrangement1 arr_tmp(traits);
+    using Observer = Combine_overlay_observer<Arrangement1, Arrangement1, Arrangement1>;
+    Observer observer(arr, arr_mesh, arr_tmp);
+    Aoc1::overlay(arr, arr_mesh, arr_tmp, observer);
+    std::swap(arr, arr_tmp);
   }
 
   return EXIT_SUCCESS;
