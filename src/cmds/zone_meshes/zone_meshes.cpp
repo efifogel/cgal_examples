@@ -4,6 +4,7 @@
 #include <vector>
 #include <algorithm>
 #include <variant>
+#include <ranges>
 
 #include <boost/program_options.hpp>
 
@@ -69,13 +70,13 @@ using Arrangement1 = Aoc1::Arrangement_on_curve_1<Geometry_traits_1, Topology_tr
 template <typename ArrangementA, typename ArrangementB, typename ArrangementR>
 class Combine_overlay_observer {
 public:
-  using Vertex_descriptor_a = typename ArrangementA::Vertex_descriptor;
-  using Vertex_descriptor_b = typename ArrangementB::Vertex_descriptor;
+  using Vertex_const_descriptor_a = typename ArrangementA::Vertex_const_descriptor;
+  using Vertex_const_descriptor_b = typename ArrangementB::Vertex_const_descriptor;
   using Vertex_descriptor_r = typename ArrangementR::Vertex_descriptor;
 
-  using Edge_descriptor_a   = typename ArrangementA::Edge_descriptor;
-  using Edge_descriptor_b   = typename ArrangementB::Edge_descriptor;
-  using Edge_descriptor_r   = typename ArrangementR::Edge_descriptor;
+  using Edge_const_descriptor_a = typename ArrangementA::Edge_const_descriptor;
+  using Edge_const_descriptor_b = typename ArrangementB::Edge_const_descriptor;
+  using Edge_descriptor_r = typename ArrangementR::Edge_descriptor;
 
   using Vertex_data_map_a = typename ArrangementA::Topology_traits::Vertex_data_map;
   using Vertex_data_map_b = typename ArrangementB::Topology_traits::Vertex_data_map;
@@ -95,7 +96,7 @@ private:
   Vertex_data_map_b m_v_map_b;
   Edge_data_map_b m_e_map_b;
 
-  // Helper utility to merge two vectors of indices
+  // Helper utility to combine two vectors of indices
   std::vector<std::size_t> combine_vectors(const std::vector<std::size_t>& vec_a,
                                            const std::vector<std::size_t>& vec_b) const {
     std::vector<std::size_t> combined;
@@ -118,7 +119,7 @@ public:
   // ============================================================================
   // 1. Two vertices coincide
   // ============================================================================
-  void create_vertex(Vertex_descriptor_a v_a, Vertex_descriptor_b v_b, Vertex_descriptor_r v_res) {
+  void create_vertex(Vertex_const_descriptor_a v_a, Vertex_const_descriptor_b v_b, Vertex_descriptor_r v_res) {
     const auto& vec_a = get(m_v_map_a, v_a);
     const auto& vec_b = get(m_v_map_b, v_b);
     put(m_v_map_r, v_res, combine_vectors(vec_a, vec_b));
@@ -127,7 +128,7 @@ public:
   // ============================================================================
   // 2. Vertex A splits Edge B
   // ============================================================================
-  void create_vertex(Vertex_descriptor_a v_a, Edge_descriptor_b e_b, Vertex_descriptor_r v_res) {
+  void create_vertex(Vertex_const_descriptor_a v_a, Edge_const_descriptor_b e_b, Vertex_descriptor_r v_res) {
     const auto& vec_a = get(m_v_map_a, v_a);
     const auto& vec_b = get(m_e_map_b, e_b);
     put(m_v_map_r, v_res, combine_vectors(vec_a, vec_b));
@@ -136,7 +137,7 @@ public:
   // ============================================================================
   // 3. Edge A is split by Vertex B
   // ============================================================================
-  void create_vertex(Edge_descriptor_a e_a, Vertex_descriptor_b v_b, Vertex_descriptor_r v_res) {
+  void create_vertex(Edge_const_descriptor_a e_a, Vertex_const_descriptor_b v_b, Vertex_descriptor_r v_res) {
     const auto& vec_a = get(m_e_map_a, e_a);
     const auto& vec_b = get(m_v_map_b, v_b);
     put(m_v_map_r, v_res, combine_vectors(vec_a, vec_b));
@@ -145,7 +146,7 @@ public:
   // ============================================================================
   // 4. Two edges overlap over a shared interval
   // ============================================================================
-  void create_edge(Edge_descriptor_a e_a, Edge_descriptor_b e_b, Edge_descriptor_r e_res) {
+  void create_edge(Edge_const_descriptor_a e_a, Edge_const_descriptor_b e_b, Edge_descriptor_r e_res) {
     const auto& vec_a = get(m_e_map_a, e_a);
     const auto& vec_b = get(m_e_map_b, e_b);
     put(m_e_map_r, e_res, combine_vectors(vec_a, vec_b));
@@ -190,6 +191,62 @@ void print_intersections(InputIterator begin, InputIterator end) {
     CGAL_assertion(s);
     std::cout << "intersection segment " << *s << " with " << x->second << std::endl;
   }
+}
+
+//!
+template <typename GeometryTraits, typename TopologyTraits>
+void traverse_left_to_right(const Aoc1::Arrangement_on_curve_1<GeometryTraits, TopologyTraits>& arr) {
+  // If the arrangement has no vertices, it contains exactly one completely unbounded edge
+  if (arr.is_empty()) {
+    std::cout << "The arrangement is empty (contains 1 fully unbounded line edge).\n";
+    return;
+  }
+
+  const auto& topo = arr.topology_traits();
+  const auto& vertices_range = arr.vertices();
+  auto p_map = arr.vertex_point_map();
+  auto v_data_map = arr.vertex_data_map();
+  auto e_data_map = arr.edge_data_map();
+
+  // Start at the first structural vertex
+  auto curr_v = vertices_range.begin();
+
+  // The most left edge is the left edge incident to the first vertex
+  auto curr_e = topo.left_edge(curr_v);
+
+  std::cout << "Starting Traversal:\n";
+  std::cout << "  [Unbounded Left Edge: ";
+  std::ranges::copy(get(e_data_map, curr_e), std::ostream_iterator<std::size_t>(std::cout, " "));
+  std::cout << "]\n";
+
+  // Traverse sequentially across vertices and edges until the rightmost unbounded edge is found
+  while (true) {
+    // Process the current vertex
+    std::cout << "  -> Vertex: (" << get(p_map, curr_v) << "), ";
+    std::ranges::copy(get(v_data_map, curr_v), std::ostream_iterator<std::size_t>(std::cout, " "));
+    std::cout << "\n";
+
+    // Move to its right incident edge
+    curr_e = topo.right_edge(curr_v);
+
+    // If this edge does not have a target/right vertex, we have reached the most right edge
+    if (! topo.has_right_vertex(curr_e)) {
+      std::cout << "  -> [Unbounded Right Edge: ";
+      std::ranges::copy(get(e_data_map, curr_e), std::ostream_iterator<std::size_t>(std::cout, " "));
+      std::cout << "]\n";
+      break;
+    }
+    else {
+      std::cout << "  -> Edge: ";
+      std::ranges::copy(get(e_data_map, curr_e), std::ostream_iterator<std::size_t>(std::cout, " "));
+      std::cout << "\n";
+    }
+
+    // Otherwise, advance to the right vertex and repeat
+    curr_v = topo.right_vertex(curr_e);
+  }
+
+  std::cout << "Traversal complete.\n";
 }
 
 //!
@@ -405,9 +462,8 @@ int main(int argc, char* argv[]) {
     CGAL::Graphics_scene_options<Mesh, vertex_descriptor, edge_descriptor, face_descriptor> gso;
     gso.ignore_all_vertices(true);
     gso.ignore_all_edges(true);
-    gso.colored_face = [](const Mesh&, typename boost::graph_traits<Mesh>::face_descriptor) -> bool
-    { return true; };
-    gso.face_color =  [] (const Mesh&, typename boost::graph_traits<Mesh>::face_descriptor fh) -> CGAL::IO::Color {
+    gso.colored_face = [](const Mesh&, typename boost::graph_traits<Mesh>::face_descriptor) -> bool { return true; };
+    gso.face_color = [] (const Mesh&, typename boost::graph_traits<Mesh>::face_descriptor fh) -> CGAL::IO::Color {
       if (fh == boost::graph_traits<Mesh>::null_face()) return CGAL::IO::Color(100, 125, 200);
       return get_random_color(CGAL::get_default_random());
     };
@@ -460,7 +516,7 @@ int main(int argc, char* argv[]) {
 
       // Insert the two endpoints into the 1D arrangement
       // Since no vertices exist in this range, these operations split the sequence cleanly
-      auto v_first  = CGAL::Arrangement_on_curve_1::insert(arr_mesh, p_src);
+      auto v_first = CGAL::Arrangement_on_curve_1::insert(arr_mesh, p_src);
       auto v_second = CGAL::Arrangement_on_curve_1::insert(arr_mesh, p_tgt);
 
       // Append index 'i' to the vertex data vectors
@@ -469,8 +525,7 @@ int main(int argc, char* argv[]) {
 
       // Locate the unique bounded edge connecting v_first and v_second
       // In our 1D topology, the edge to the right of v_first spans precisely to v_second
-      auto topo  = arr_mesh.topology_traits();
-      auto e_bet = topo.right_edge(v_first);
+      auto e_bet = arr_mesh.right_edge(v_first);
 
       // Append index 'i' to the connecting edge's data vector
       get(e_data_map, e_bet).push_back(i);
@@ -481,6 +536,7 @@ int main(int argc, char* argv[]) {
     Aoc1::overlay(arr, arr_mesh, arr_tmp, observer);
     std::swap(arr, arr_tmp);
   }
+  traverse_left_to_right(arr);
 
   return EXIT_SUCCESS;
 }

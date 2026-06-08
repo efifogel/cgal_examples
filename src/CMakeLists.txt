@@ -1,8 +1,8 @@
 # Useful for macro names
 string(TOUPPER ${project} project_upper)
 
-# Use C++17 for this directory and its sub-directories.
-set(CMAKE_CXX_STANDARD 17)
+# Use C++20 for this directory and its sub-directories.
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
