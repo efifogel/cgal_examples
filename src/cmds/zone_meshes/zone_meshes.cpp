@@ -447,8 +447,8 @@ int main(int argc, char* argv[]) {
     PMP::compute_face_normals(mesh, normals, np);
   }
 
-  Geometry_traits_1 traits(line_query);
-  Arrangement1 arr(traits);
+  auto traits_ptr = std::make_shared<const Geometry_traits_1>(line_query);
+  Arrangement1 arr(traits_ptr);
 
   // Compute intersection
   std::size_t i = 0;
@@ -482,7 +482,7 @@ int main(int argc, char* argv[]) {
     process_intersections(face_intersections.begin(), face_intersections.end(), line_query,
                           normals, std::back_inserter(intersections));
 
-    Arrangement1 arr_mesh(traits);
+    Arrangement1 arr_mesh(traits_ptr);
 
     // Retrieve the read/write property maps from the arrangement facade
     auto v_data_map = arr_mesh.vertex_data_map();
@@ -524,7 +524,7 @@ int main(int argc, char* argv[]) {
       // Append index 'i' to the connecting edge's data vector
       get(e_data_map, e_bet).push_back(i);
     }
-    Arrangement1 arr_tmp(traits);
+    Arrangement1 arr_tmp(traits_ptr);
     using Observer = Combine_overlay_observer<Arrangement1, Arrangement1, Arrangement1>;
     Observer observer(arr, arr_mesh, arr_tmp);
     Aoc1::overlay(arr, arr_mesh, arr_tmp, observer);
