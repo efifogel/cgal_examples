@@ -12,17 +12,17 @@
 #include <CGAL/AABB_tree.h>
 #include <CGAL/AABB_traits_3.h>
 #include <CGAL/AABB_face_graph_triangle_primitive.h>
+#include <CGAL/Arrangement_on_curve_1/Arrangement_on_curve_1.h>
+#include <CGAL/Arrangement_on_curve_1/Unbounded_topology_traits.h>
+#include <CGAL/Arrangement_on_curve_1/overlay.h>
+#include <CGAL/Arrangement_on_curve_1/Line_3_traits_1.h>
+#include <CGAL/Arrangement_on_curve_1/insert.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/draw_surface_mesh.h>
 #include <CGAL/Polyhedron_3.h>
 #include <CGAL/draw_polyhedron.h>
 #include <CGAL/Polygon_mesh_processing/compute_normal.h>
 #include <CGAL/Polygon_mesh_processing/IO/polygon_mesh_io.h>
-#include <CGAL/Arrangement_on_curve_1.h>
-#include <CGAL/Arrangement_on_curve_1_functions.h>
-#include <CGAL/overlay.h>
-#include <CGAL/Unbounded_topology_traits.h>
-#include <CGAL/Line_3_traits_1.h>
 
 #include <CGAL/boost/graph/Euler_operations.h>
 #include <CGAL/boost/graph/generators.h>
@@ -202,35 +202,32 @@ void traverse_left_to_right(const Aoc1::Arrangement_on_curve_1<GeometryTraits, T
     return;
   }
 
-  const auto& topo = arr.topology_traits();
   const auto& vertices_range = arr.vertices();
   auto p_map = arr.vertex_point_map();
   auto v_data_map = arr.vertex_data_map();
   auto e_data_map = arr.edge_data_map();
 
-  // Start at the first structural vertex
-  auto curr_v = vertices_range.begin();
-
-  // The most left edge is the left edge incident to the first vertex
-  auto curr_e = topo.left_edge(curr_v);
-
   std::cout << "Starting Traversal:\n";
+
+  // Start with the leftmost unbounded edge (-inf, ...)
+  auto curr_e = arr.unbounded_edge();
   std::cout << "  [Unbounded Left Edge: ";
   std::ranges::copy(get(e_data_map, curr_e), std::ostream_iterator<std::size_t>(std::cout, " "));
   std::cout << "]\n";
 
-  // Traverse sequentially across vertices and edges until the rightmost unbounded edge is found
-  while (true) {
+  // Proceed to the right by traversing the topological graph
+  while (arr.has_right_vertex(curr_e)) {
+    auto curr_v = arr.right_vertex(curr_e);
     // Process the current vertex
     std::cout << "  -> Vertex: (" << get(p_map, curr_v) << "), ";
     std::ranges::copy(get(v_data_map, curr_v), std::ostream_iterator<std::size_t>(std::cout, " "));
     std::cout << "\n";
 
     // Move to its right incident edge
-    curr_e = topo.right_edge(curr_v);
+    curr_e = arr.right_edge(curr_v);
 
     // If this edge does not have a target/right vertex, we have reached the most right edge
-    if (! topo.has_right_vertex(curr_e)) {
+    if (! arr.has_right_vertex(curr_e)) {
       std::cout << "  -> [Unbounded Right Edge: ";
       std::ranges::copy(get(e_data_map, curr_e), std::ostream_iterator<std::size_t>(std::cout, " "));
       std::cout << "]\n";
@@ -241,9 +238,6 @@ void traverse_left_to_right(const Aoc1::Arrangement_on_curve_1<GeometryTraits, T
       std::ranges::copy(get(e_data_map, curr_e), std::ostream_iterator<std::size_t>(std::cout, " "));
       std::cout << "\n";
     }
-
-    // Otherwise, advance to the right vertex and repeat
-    curr_v = topo.right_vertex(curr_e);
   }
 
   std::cout << "Traversal complete.\n";
