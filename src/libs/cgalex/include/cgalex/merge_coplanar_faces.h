@@ -1,5 +1,5 @@
-#ifndef MERGE_COPLANAR_FACES_H
-#define MERGE_COPLANAR_FACES_H
+#ifndef CGALEX_MERGE_COPLANAR_FACES_H
+#define CGALEX_MERGE_COPLANAR_FACES_H
 
 #include <list>
 #include <unordered_map>
