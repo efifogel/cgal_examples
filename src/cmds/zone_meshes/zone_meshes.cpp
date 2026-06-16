@@ -210,7 +210,7 @@ void traverse_left_to_right(const Aoc1::Arrangement_on_curve_1<GeometryTraits, T
   std::cout << "Starting Traversal:\n";
 
   // Start with the leftmost unbounded edge (-inf, ...)
-  auto curr_e = arr.unbounded_edge();
+  auto curr_e = arr.unbounded_left_edge();
   std::cout << "  [Unbounded Left Edge: ";
   std::ranges::copy(get(e_data_map, curr_e), std::ostream_iterator<std::size_t>(std::cout, " "));
   std::cout << "]\n";
