@@ -371,13 +371,25 @@ int main(int argc, char* argv[]) {
   Path input_path = def_input_path();
   std::size_t verbose_level = 0;
 
+  // constructs segment query
+  Point a(-0.2, 0.2, -0.2);
+  Point b(1.3, 0.2, 1.3);
+  Line line_query(a, b);
+
   try {
     // Define options
     po::options_description desc("Allowed options");
     desc.add_options()
+      ("help,h", "produce help message")
       ("input-path,i", po::value<Path>()->default_value({def_input_path()}), "input path")
       ("verbose,v", po::value<std::size_t>(&verbose_level)->implicit_value(0),
        "set verbosity level (0 = quiet)")
+      // Option 1: 2 Points -> Requires 6 doubles (x1 y1 z1 x2 y2 z2)
+      ("points", po::value<std::vector<double>>()->multitoken(),
+       "Define line using 2 points: x1 y1 z1 x2 y2 z2")
+      // Option 2: Point & Vector -> Requires 6 doubles (x y z dx dy dz)
+      ("vector", po::value<std::vector<double>>()->multitoken(),
+       "Define line using point and vector: x y z dx dy dz")
       ;
 
     // This is a place holder for a positional option
@@ -393,6 +405,55 @@ int main(int argc, char* argv[]) {
     if (vm.count("help")) {
       std::cout << desc << "\n";
       return 0;
+
+      if (vm.count("points") && vm.count("vector")) {
+        std::cerr << "Error: Please provide either points OR vector, not both.\n";
+        return 1;
+      }
+
+      // Allow default
+      // if (! vm.count("points") && ! vm.count("vector")) {
+      //   std::cerr << "Error: You must define a 3D line using either --points or --vector.\n";
+      //   return 1;
+      // }
+    }
+
+    // Scenario A: Construct from 2 points in 3-space
+    if (vm.count("points")) {
+      auto pts = vm["points"].as<std::vector<double>>();
+      if (pts.size() != 6) {
+        std::cerr << "Error: --points requires exactly 6 values (x1 y1 z1 x2 y2 z2). Got " << pts.size() << ".\n";
+        return 1;
+      }
+
+      Point p1(pts[0], pts[1], pts[2]);
+      Point p2(pts[3], pts[4], pts[5]);
+
+      if (p1 == p2) {
+        std::cerr << "Error: Points must be distinct to define a 3D line.\n";
+        return 1;
+      }
+
+      line_query = Line(p1, p2);
+      std::cout << "3D Line successfully created from two points.\n";
+    }
+    // Scenario B: Construct from a point and a vector
+    else if (vm.count("vector")) {
+      auto vec_input = vm["vector"].as<std::vector<double>>();
+      if (vec_input.size() != 6) {
+        std::cerr << "Error: --vector requires exactly 6 values (x y z dx dy dz). Got " << vec_input.size() << ".\n";
+        return 1;
+      }
+      if (vec_input[3] == 0 && vec_input[4] == 0 && vec_input[5] == 0) {
+        std::cerr << "Error: Direction vector components (dx, dy, dz) cannot all be zero.\n";
+        return 1;
+      }
+
+      Point p(vec_input[0], vec_input[1], vec_input[2]);
+      Vector v(vec_input[3], vec_input[4], vec_input[5]);
+
+      line_query = Line(p, v);
+      std::cout << "3D Line successfully created from point and vector.\n";
     }
 
     input_path = vm["input-path"].as<Path>();
@@ -401,11 +462,6 @@ int main(int argc, char* argv[]) {
     std::cout << "Exception: " << e.what() << "\n";
     return 1;
   }
-
-  // constructs segment query
-  Point a(-0.2, 0.2, -0.2);
-  Point b(1.3, 0.2, 1.3);
-  Line line_query(a, b);
 
   std::cout << "Searching in: " << input_path << "\n";
   std::vector<fs::path> files = find_off_files(input_path);
