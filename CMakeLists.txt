@@ -11,6 +11,8 @@ endif(CMAKE_TOOLCHAIN_FILE)
 option(BUILD_SHARED_LIBS "Build shared libs instead of static libs" ON)
 # option(${project}_BUILD_PYBINDINGS "Build python bindings" OFF)
 option(CGALEX_USE_STATIC_LIBS "Link with static libraries" OFF)
+option(${project}_BUILD_ZONE_MESHES "Build with zone_meshes" ON)
+
 # option(${project}_BUILD_DEV_DOC "Build the development documentation" OFF)
 # option(${project}_BUILD_PYBINDINGS "Build python bindings" ON)
 # option(${project}_BUILD_PYBINDINGS_DOC "Build the documentation of the Python bindings" ON)
